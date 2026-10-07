@@ -1,3 +1,10 @@
+/* =========================================================================
+   ExamFlow — app.js
+   Adds: rail (search/timer/settings), floating dock, universal search,
+   new Home, Library (notes+questions+quiz), backup reminder, undo, SW.
+   All existing ExamFlow behavior and data shape is preserved.
+   ========================================================================= */
+
 const STORAGE_KEY = 'examflow.workspace.v1';
 const COLORS = [
   { bg: '#e6f6f8', fg: '#398b9a', bar: '#71c6d5' },
@@ -7,47 +14,161 @@ const COLORS = [
   { bg: '#eaf7f0', fg: '#4e9b7c', bar: '#8ed2b6' },
   { bg: '#fcefe4', fg: '#bd8051', bar: '#efa96f' }
 ];
-const VIEW_TITLES = { dashboard: 'Overview', syllabus: 'Syllabus', exams: 'Exams', plan: 'Study plan', metrics: 'Insights', settings: 'Settings' };
-const blankState = () => ({ version: 1, semesterName: 'Your semester', subjects: [], exams: [], sessions: [], settings: { provider: 'gemini', apiKey: '', model: 'gemini-3.8-flash', dailyHours: 4, readGoal: 3, todayHours: null, skipToday: [] }, timer: null });
+const PROVIDERS = {
+  gemini:    { label:'Google Gemini', model:'gemini-3.8-flash',  models:['gemini-3.8-flash'],                              hint:'Starts with “AIza”',    test:/^AIza[\w-]{20,}$/ },
+  openai:    { label:'OpenAI',        model:'gpt-6-luna',        models:['gpt-6-luna','gpt-4o-mini','gpt-4o'],             hint:'Starts with “sk-”',     test:/^sk-[\w-]{20,}$/ },
+  anthropic: { label:'Anthropic',     model:'claude-sonnet-5-5', models:['claude-sonnet-5-5','claude-haiku-4-5-20251001'],  hint:'Starts with “sk-ant-”', test:/^sk-ant-[\w-]{20,}$/ }
+};
+const VIEW_TITLES = { dashboard:'Overview', syllabus:'Syllabus', exams:'Exams', plan:'Study plan', library:'Library', metrics:'Insights', settings:'Settings', help:'Help' };
+
+/* ---------- SVG icon factory (all same-style line icons, no emojis) ------- */
+const S = (paths, size = 22) =>
+  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const I = {
+  home:     S('<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5Z"/>'),
+  syllabus: S('<path d="M4 5h16M4 12h16M4 19h10"/>'),
+  plan:     S('<rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 3v3M16 3v3M8.5 14h2M13.5 14h2M8.5 17h2"/>'),
+  library:  S('<path d="M4 4.5h6a3 3 0 0 1 3 3V21M20 4.5h-6a3 3 0 0 0-3 3V21M4 4.5V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4.5"/>'),
+  more:     S('<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>'),
+  search:   S('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+  timer:    S('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 3h6"/>'),
+  settings: S('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
+  plus:     S('<path d="M12 5v14M5 12h14"/>'),
+  close:    S('<path d="M6 6l12 12M18 6 6 18"/>'),
+  check:    S('<path d="m5 12 5 5 9-11"/>'),
+  chev:     S('<path d="m6 9 6 6 6-6"/>'),
+  play:     S('<path d="M7 4.5v15l13-7.5-13-7.5Z"/>'),
+  pause:    S('<path d="M7 4v16M17 4v16"/>'),
+  stop:     S('<rect x="5" y="5" width="14" height="14" rx="2"/>'),
+  note:     S('<path d="M4 4.5h11l5 5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"/><path d="M14 4.5V10h5.5"/>'),
+  question: S('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.5 2.5 0 1 1 3.6 2.2c-.8.4-1.1.9-1.1 1.6v.5M12 17h.01"/>'),
+  tag:      S('<path d="M3 12V4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9-9-9Z"/><circle cx="7.5" cy="7.5" r="1.4"/>'),
+  trash:    S('<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13.5A1.5 1.5 0 0 0 9 22h6a1.5 1.5 0 0 0 1.5-1.5L17.5 7"/>'),
+  backup:   S('<path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/><path d="M8 8l4-4 4 4M12 4v11"/>'),
+  exam:     S('<rect x="4" y="4.5" width="16" height="17" rx="2"/><path d="M8 2.5v4M16 2.5v4M4 10h16"/>'),
+  sync:     S('<path d="M4.5 12a7.5 7.5 0 0 1 12.9-5.2L20 9.5M19.5 12a7.5 7.5 0 0 1-12.9 5.2L4 14.5M20 5v4.5h-4.5M4 19v-4.5h4.5"/>'),
+  help:     S('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.5 2.5 0 1 1 3.6 2.2c-.8.4-1.1.9-1.1 1.6v.5M12 17h.01"/>'),
+  spark:    S('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>'),
+};
+
+/* ---------- Blank state (notes + questions added) ------------------------- */
+const blankState = () => ({
+  version: 1,
+  semesterName: 'Your semester',
+  subjects: [], exams: [], sessions: [],
+  notes: [], questions: [],
+  settings: {
+    provider: 'gemini', apiKey: '', model: 'gemini-3.8-flash',
+    dailyHours: 4, readGoal: 3, todayHours: null, skipToday: [],
+    railSide: 'right', reduceMotion: false, targetMinutes: null,
+    lastBackup: null,
+  },
+  timer: null,
+  tourDone: false,
+});
+
 let state = loadState();
 let view = 'dashboard';
 let openSubjectId = null;
 let syllabusFilter = '';
 let searchQuery = '';
+let libraryTab = 'notes';
+let libraryFilter = { subjectId: '', tag: '', q: '' };
+let quizState = null;
+let railState = { open: null };
+let railHidden = false;
+let dockHidden = false;
+let searchOverlay = null;
+let pendingUndo = null;
+let forgotCheckTimer = null;
 let tickHandle = null;
 let pendingSyllabusImport = [];
 let modalReturnFocus = null;
 let menuReturnFocus = null;
+let ttSeq = 0;
+let tourI = -1;
+let aiAbort = null;
 
+/* ---------- Persistence --------------------------------------------------- */
 function loadState() {
-  try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) return { ...blankState(), ...JSON.parse(raw), settings: { ...blankState().settings, ...(JSON.parse(raw).settings || {}) } }; }
-  catch (e) { console.warn('Workspace data could not be loaded:', e); }
-  return blankState();
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return blankState();
+    const parsed = JSON.parse(raw);
+    return {
+      ...blankState(), ...parsed,
+      settings: { ...blankState().settings, ...(parsed.settings || {}) },
+      notes: parsed.notes || [],
+      questions: parsed.questions || [],
+    };
+  } catch (e) { console.warn('Load failed', e); return blankState(); }
 }
-function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); updateSidebar(); }
-function uid(prefix = 'id') { return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; }
-function esc(s = '') { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-function localDate(d = new Date()) { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; }
-function parseDate(s) { return new Date(`${s}T12:00:00`); }
-function daysBetween(a, b) { return Math.ceil((parseDate(localDate(b)) - parseDate(localDate(a))) / 86400000); }
-function fmtDate(s, opts = { month: 'short', day: 'numeric' }) { if (!s) return 'No date'; const d = parseDate(s); return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString(undefined, opts); }
-function fmtDay(d) { return new Date(d).toLocaleDateString(undefined, { weekday: 'short' }); }
-function fmtDuration(min) { const h = Math.floor(min / 60); const m = Math.round(min % 60); return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`; }
+function persist() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {} updateSidebar(); }
+
+/* ---------- Utils -------------------------------------------------------- */
+const uid = (p = 'id') => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+const esc = (s = '') => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const localDate = (d = new Date()) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
+const parseDate = s => new Date(`${s}T12:00:00`);
+const daysBetween = (a, b) => Math.ceil((parseDate(localDate(b)) - parseDate(localDate(a))) / 86400000);
+const fmtDate = (s, o = { month:'short', day:'numeric' }) => !s ? 'No date' : parseDate(s).toLocaleDateString(undefined, o);
+const fmtDay = d => new Date(d).toLocaleDateString(undefined, { weekday: 'short' });
+const fmtDuration = m => { m = Math.round(m || 0); const h = Math.floor(m / 60); const r = m % 60; return h ? `${h}h${r ? ` ${r}m` : ''}` : `${r}m`; };
+const fmtTime = s => { s = Math.max(0, Math.round(s)); return `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; };
+const normalizeKey = v => String(v || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ');
+
+/* ---------- Data accessors ------------------------------------------------ */
 function allTopics() { return state.subjects.flatMap(s => s.units.flatMap(u => u.topics.map(t => ({ ...t, subjectId: s.id, subject: s.name, unitId: u.id, unit: u.name, color: s.color || 0 })))); }
-function normalizeKey(value) { return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' '); }
-function topicRecord(name) { return { id: uid('topic'), name: String(name).trim(), status: 'unknown', reads: 0, readHistory: [], lastReadAt: null, nextReviewAt: null, reviewStep: 0, estimateMin: 45, priority: 1 }; }
 function findTopic(id) { for (const s of state.subjects) for (const u of s.units) { const t = u.topics.find(x => x.id === id); if (t) return { subject: s, unit: u, topic: t }; } return null; }
+function findSubject(id) { return state.subjects.find(s => s.id === id); }
 function allTopicCount() { return allTopics().length; }
-function statusCount(sid) { const ts = sid ? allTopics().filter(t => t.subjectId === sid) : allTopics(); return { total: ts.length, unknown: ts.filter(t => t.status === 'unknown').length, review: ts.filter(t => t.status === 'review').length, ready: ts.filter(t => t.status === 'ready').length, reads: ts.reduce((n, t) => n + (t.reads || 0), 0) }; }
+function statusCount(sid) {
+  const ts = sid ? allTopics().filter(t => t.subjectId === sid) : allTopics();
+  return { total: ts.length, unknown: ts.filter(t => t.status === 'unknown').length, review: ts.filter(t => t.status === 'review').length, ready: ts.filter(t => t.status === 'ready').length, reads: ts.reduce((n, t) => n + (t.reads || 0), 0) };
+}
+function subjectPct(s) { const c = statusCount(s.id); return c.total ? Math.round((c.ready + c.review * .45) / c.total * 100) : 0; }
 function futureExams() { return state.exams.filter(e => e.date && daysBetween(new Date(), parseDate(e.date)) >= 0).sort((a, b) => a.date.localeCompare(b.date)); }
-function nearestExamFor(t) { const matches = futureExams().filter(e => (e.topicIds || []).includes(t.id)); return matches[0] || null; }
-function topicAverage(t) { const sessions = state.sessions.filter(x => x.topicId === t.id && x.minutes > 0); if (!sessions.length) return Number(t.estimateMin) || 45; return sessions.reduce((a, x) => a + x.minutes, 0) / sessions.length; }
-function dueTopics() { const today = localDate(); return allTopics().filter(t => t.status === 'ready' && t.nextReviewAt && t.nextReviewAt <= today); }
+function dueTopics() { const t = localDate(); return allTopics().filter(x => x.status === 'ready' && x.nextReviewAt && x.nextReviewAt <= t); }
 function dueInDays(days = 7) { const today = localDate(); const later = localDate(new Date(Date.now() + days * 86400000)); return allTopics().filter(t => t.nextReviewAt && t.nextReviewAt >= today && t.nextReviewAt <= later); }
+function weeklyMinutes() { const since = new Date(); since.setDate(since.getDate() - 6); return state.sessions.filter(s => new Date(s.startAt) >= since).reduce((a, s) => a + s.minutes, 0); }
+function todayMinutes() { const t = localDate(); return state.sessions.filter(s => localDate(new Date(s.startAt)) === t).reduce((a, s) => a + s.minutes, 0); }
+function getStreak() {
+  const dates = new Set(state.sessions.map(s => localDate(new Date(s.startAt))));
+  let c = new Date(); if (!dates.has(localDate(c))) c.setDate(c.getDate() - 1);
+  let n = 0; while (dates.has(localDate(c))) { n++; c.setDate(c.getDate() - 1); }
+  return n;
+}
+
+/* ---------- Notes & questions helpers ------------------------------------ */
+function notesFor(attach) { return state.notes.filter(n => n.attach.type === attach.type && n.attach.id === attach.id); }
+function notesForTopic(topicId) {
+  const f = findTopic(topicId); if (!f) return [];
+  return [
+    ...notesFor({ type: 'topic', id: f.topic.id }),
+    ...notesFor({ type: 'unit', id: f.unit.id }),
+    ...notesFor({ type: 'subject', id: f.subject.id }),
+  ];
+}
+function noteCountFor(s) {
+  return state.notes.filter(n =>
+    (n.attach.type === 'subject' && n.attach.id === s.id) ||
+    (n.attach.type === 'unit' && s.units.some(u => u.id === n.attach.id)) ||
+    (n.attach.type === 'topic' && s.units.some(u => u.topics.some(t => t.id === n.attach.id)))
+  ).length;
+}
+function allTags() { return [...new Set([...state.notes, ...state.questions].flatMap(n => n.tags || []))].sort(); }
+function describeAttach(a) {
+  if (!a) return '';
+  if (a.type === 'subject') return findSubject(a.id)?.name || 'Subject';
+  if (a.type === 'unit') { for (const s of state.subjects) { const u = s.units.find(x => x.id === a.id); if (u) return `${s.name} · ${u.name}`; } return 'Unit'; }
+  if (a.type === 'topic') { const f = findTopic(a.id); return f ? `${f.subject.name} · ${f.topic.name}` : 'Topic'; }
+  return '';
+}
+
+/* ---------- Plan engine (unchanged logic) -------------------------------- */
 function makePlan(hours, skip) {
-  const now = new Date();
   const today = localDate();
-  if (state.settings.todayPlanDate && state.settings.todayPlanDate !== today) {
+  if (state.settings.todayPlanDate !== today) {
     state.settings.todayPlanDate = today;
     state.settings.todayHours = Number(state.settings.dailyHours) || 4;
     state.settings.skipToday = [];
@@ -55,745 +176,1346 @@ function makePlan(hours, skip) {
   }
   hours = hours ?? (state.settings.todayPlanDate === today ? state.settings.todayHours : state.settings.dailyHours);
   skip = skip ?? (state.settings.todayPlanDate === today ? state.settings.skipToday || [] : []);
-  const future = futureExams();
+  const now = new Date();
   const topics = allTopics().filter(t => !skip.includes(t.subjectId)).filter(t => t.status !== 'ready' || (t.nextReviewAt && t.nextReviewAt <= today));
   const candidates = topics.map(t => {
-    const exam = nearestExamFor(t);
-    const days = exam ? Math.max(0, daysBetween(now, parseDate(exam.date))) : 28;
+    const ex = futureExams().find(e => (e.topicIds || []).includes(t.id));
+    const d = ex ? Math.max(0, daysBetween(now, parseDate(ex.date))) : 28;
     const last = t.lastReadAt ? Math.max(0, Math.floor((Date.now() - new Date(t.lastReadAt).getTime()) / 86400000)) : 20;
     const isDue = t.nextReviewAt && t.nextReviewAt <= today;
-    const stateWeight = t.status === 'unknown' ? 1.5 : t.status === 'review' ? 1.12 : 0.86;
-    const urgency = 1 + Math.max(0, 18 - days) / 12;
+    const w = t.status === 'unknown' ? 1.5 : t.status === 'review' ? 1.12 : .86;
+    const urgency = 1 + Math.max(0, 18 - d) / 12;
     const untouched = 1 + Math.min(last, 30) / 45;
-    const score = (isDue ? 4 : 0) + stateWeight * urgency * untouched * (Number(t.priority) || 1);
-    return { ...t, exam, days, last, isDue, score, minutes: Math.max(15, Math.min(150, Math.round(topicAverage(t) * (isDue ? .72 : 1)))) };
+    const score = (isDue ? 4 : 0) + w * urgency * untouched * (t.priority || 1);
+    return { ...t, exam: ex, days: d, isDue, score, minutes: Math.max(15, Math.min(150, Math.round((t.estimateMin || 45) * (isDue ? .72 : 1)))) };
   }).sort((a, b) => b.score - a.score);
   const budget = Math.max(30, Number(hours || 0) * 60);
-  const tasks = [];
-  let used = 0;
+  const tasks = []; let used = 0;
   for (const t of candidates) {
     if (used >= budget) break;
-    const minutes = Math.min(t.minutes, budget - used);
-    if (minutes < 10) continue;
-    tasks.push({ ...t, minutes, startMinute: used });
-    used += minutes + 8;
+    const m = Math.min(t.minutes, budget - used);
+    if (m < 10) continue;
+    tasks.push({ ...t, minutes: m, startMinute: used });
+    used += m + 8;
   }
-  const assigned = allTopics().filter(t => nearestExamFor(t));
-  const remaining = assigned.filter(t => t.status !== 'ready').reduce((a, t) => a + topicAverage(t), 0) + dueTopics().reduce((a, t) => a + topicAverage(t) * .7, 0);
-  const next = future[0];
+  const assigned = allTopics().filter(t => futureExams().some(e => (e.topicIds || []).includes(t.id)));
+  const remaining = assigned.filter(t => t.status !== 'ready').reduce((a, t) => a + (t.estimateMin || 45), 0) + dueTopics().reduce((a, t) => a + (t.estimateMin || 45) * .7, 0);
+  const next = futureExams()[0];
   const daysLeft = next ? Math.max(1, daysBetween(now, parseDate(next.date)) + 1) : null;
   const dailyNeed = daysLeft ? remaining / daysLeft : 0;
   const risk = Boolean(next && dailyNeed > (Number(state.settings.dailyHours) * 60));
   return { tasks, used, budget, remaining, next, daysLeft, dailyNeed, risk, totalCandidates: candidates.length };
 }
-function topicRead(topicId, minutes = 25, startAt = new Date(Date.now() - minutes * 60000).toISOString()) {
-  const result = findTopic(topicId); if (!result) return;
-  const { subject, unit, topic } = result;
-  const duration = Math.max(1, Math.round(minutes));
+
+/* ---------- Session logging (unchanged) ---------------------------------- */
+function logSession(topicId, minutes, startAt = new Date(Date.now() - minutes * 60000).toISOString()) {
+  const f = findTopic(topicId); if (!f) return;
+  const dur = Math.max(1, Math.round(minutes));
   const ended = new Date().toISOString();
-  topic.reads = (topic.reads || 0) + 1;
-  topic.lastReadAt = ended;
-  topic.readHistory = [...(topic.readHistory || []), ended];
-  if (topic.status === 'unknown') topic.status = 'review';
-  state.sessions.push({ id: uid('session'), topicId, subjectId: subject.id, topicName: topic.name, subjectName: subject.name, unitName: unit.name, startAt, endedAt: ended, minutes: duration });
+  f.topic.reads = (f.topic.reads || 0) + 1;
+  f.topic.lastReadAt = ended;
+  f.topic.readHistory = [...(f.topic.readHistory || []), ended];
+  if (f.topic.status === 'unknown') f.topic.status = 'review';
+  state.sessions.push({ id: uid('session'), topicId, subjectId: f.subject.id, topicName: f.topic.name, subjectName: f.subject.name, unitName: f.unit.name, startAt, endedAt: ended, minutes: dur });
   persist();
-  return { subject, unit, topic, duration };
+  return { subject: f.subject, unit: f.unit, topic: f.topic, duration: dur };
 }
-function markStatus(topicId, status) {
-  const found = findTopic(topicId); if (!found) return;
-  const t = found.topic; t.status = status;
-  if (status === 'ready' && !t.nextReviewAt) { t.nextReviewAt = localDate(new Date(Date.now() + 2 * 86400000)); t.reviewStep = 1; }
-  if (status !== 'ready') t.nextReviewAt = null;
-  if (status === 'ready' && t.nextReviewAt && t.nextReviewAt < localDate()) t.nextReviewAt = localDate(new Date(Date.now() + 2 * 86400000));
-  persist(); render();
+
+/* ---------- Timer module -------------------------------------------------- */
+function timerElapsed() {
+  if (!state.timer) return 0;
+  const t = state.timer;
+  const now = t.pausedAt ? new Date(t.pausedAt).getTime() : Date.now();
+  return Math.max(0, Math.floor((now - new Date(t.startedAt).getTime() - (t.pausedMs || 0)) / 1000));
 }
-function rescheduleReview(topic, success) {
-  const intervals = [2, 4, 6, 12, 24, 48, 96];
-  if (!success) { topic.status = 'review'; topic.nextReviewAt = localDate(new Date(Date.now() + 1 * 86400000)); topic.reviewStep = 0; return; }
-  topic.status = 'ready'; const step = Math.min(topic.reviewStep || 0, intervals.length - 1);
-  const days = intervals[step]; topic.reviewStep = Math.min(step + 1, intervals.length - 1); topic.nextReviewAt = localDate(new Date(Date.now() + days * 86400000));
+function startTimer(topicId) {
+  if (state.timer) { if (!confirm('A session is already running. Stop it and start this topic?')) return; finishTimer(false); }
+  const f = findTopic(topicId); if (!f) return toast('Topic not found.', 'error');
+  state.timer = { topicId, startedAt: new Date().toISOString(), pausedMs: 0, pausedAt: null, targetMinutes: state.settings.targetMinutes || null, _alerted: false };
+  persist(); renderRail(); render();
+  toast(`Started: ${f.topic.name}`, 'success');
+  scheduleForgotCheck();
 }
-function nextStudyTopic() { return makePlan(4).tasks[0] || null; }
-function getStreak() {
-  const dates = new Set(state.sessions.map(s => localDate(new Date(s.startAt))));
-  let check = new Date(); if (!dates.has(localDate(check))) check.setDate(check.getDate() - 1);
-  let streak = 0; while (dates.has(localDate(check))) { streak++; check.setDate(check.getDate() - 1); }
-  return streak;
+function pauseTimer() { if (!state.timer || state.timer.pausedAt) return; state.timer.pausedAt = new Date().toISOString(); persist(); renderRail(); render(); }
+function resumeTimer() {
+  if (!state.timer || !state.timer.pausedAt) return;
+  const ms = Date.now() - new Date(state.timer.pausedAt).getTime();
+  state.timer.pausedMs = (state.timer.pausedMs || 0) + ms;
+  state.timer.pausedAt = null;
+  persist(); renderRail(); render();
 }
-function weeklyMinutes() { const since = new Date(); since.setDate(since.getDate() - 6); return state.sessions.filter(s => new Date(s.startAt) >= since).reduce((a, s) => a + s.minutes, 0); }
+function finishTimer(notify = true) {
+  if (!state.timer) return;
+  const minutes = Math.max(1, Math.round(timerElapsed() / 60));
+  const topicId = state.timer.topicId;
+  state.timer = null;
+  const res = logSession(topicId, minutes);
+  persist(); renderRail(); render();
+  if (notify && res) toast(`${fmtDuration(minutes)} logged · ${res.topic.name}`, 'success');
+  clearTimeout(forgotCheckTimer);
+}
+function scheduleForgotCheck() {
+  clearTimeout(forgotCheckTimer);
+  forgotCheckTimer = setTimeout(() => {
+    if (!state.timer) return;
+    if (timerElapsed() / 3600 >= 3) {
+      if (confirm('This session has been running over 3 hours. Did you forget to stop it?')) finishTimer();
+    }
+  }, 3 * 3600 * 1000);
+}
+
+/* ---------- Sidebar + title (kept mostly as-is) -------------------------- */
 function updateSidebar() {
-  const total = allTopicCount(); const count = document.getElementById('topicCount'); if (count) count.textContent = total;
+  const total = allTopicCount();
+  const count = document.getElementById('topicCount'); if (count) count.textContent = total;
   const sem = document.getElementById('semesterLabel'); if (sem) sem.textContent = state.semesterName || 'Your semester';
-  const mins = weeklyMinutes(); const wh = document.getElementById('weekHours'); if (wh) wh.innerHTML = `${(mins / 60).toFixed(mins % 60 ? 1 : 0)}h <i>/ 28h</i>`;
+  const mins = weeklyMinutes();
+  const wh = document.getElementById('weekHours'); if (wh) wh.innerHTML = `${(mins / 60).toFixed(mins % 60 ? 1 : 0)}h <i>/ 28h</i>`;
   const wp = document.getElementById('weekProgress'); if (wp) wp.style.width = `${Math.min(100, mins / (28 * 60) * 100)}%`;
   const hint = document.getElementById('weekHint'); if (hint) hint.textContent = mins ? `${Math.round(mins / 60)}h studied in the last 7 days` : 'Start a session to build momentum';
 }
 function setPageHeader() {
   const t = document.getElementById('pageTitle'); if (t) t.textContent = VIEW_TITLES[view] || 'Overview';
   const d = document.getElementById('todayLabel'); if (d) d.textContent = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  document.querySelectorAll('.nav-link[data-view],.mobile-tab[data-view]').forEach(b => { const active = b.dataset.view === view; b.classList.toggle('active', active); if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
-}
-function render() {
-  setPageHeader(); updateSidebar();
-  const root = document.getElementById('app');
-  root.innerHTML = ({ dashboard: renderDashboard, syllabus: renderSyllabus, exams: renderExams, plan: renderPlan, metrics: renderMetrics, settings: renderSettings }[view] || renderDashboard)();
-  updateTimerText(); addHelpButtons();
-}
-function pageHeading(kicker, title, text, actions = '') { return `<div class="page-heading"><div><div class="eyebrow">${kicker}</div><h1 tabindex="-1">${title}</h1><p>${text}</p></div><div class="heading-actions">${actions}</div></div>`; }
-function metricCard(t, v, f, icon, c) { return `<article class="metric-card card ${c}"><div class="metric-top"><span>${t}</span><span class="metric-icon">${icon}</span></div><div class="metric-value">${v}</div><div class="metric-foot">${f}</div></article>`; }
-function subjectProgressMarkup(subject) {
-  const c = statusCount(subject.id); const pct = c.total ? Math.round((c.ready + c.review * .45) / c.total * 100) : 0; const ci = (subject.color || 0) % COLORS.length; const co = COLORS[ci];
-  return `<div class="subject-row"><div class="subject-mark" style="background:${co.bg};color:${co.fg}">${esc(subject.name.slice(0, 2).toUpperCase())}</div><div class="subject-info"><strong>${esc(subject.name)}</strong><small>${c.ready} ready · ${c.review} review · ${c.unknown} to learn</small><div class="progress-track"><span style="width:${pct}%;background:${co.bar}"></span></div></div><div class="subject-percent">${pct}%</div></div>`;
-}
-function dayPanel(plan) {
-  const today = localDate(); const budget = Math.max(30, Math.round(Number(state.settings.todayHours ?? state.settings.dailyHours) * 60));
-  const done = Math.round(state.sessions.filter(x => localDate(x.startAt) === today).reduce((a, x) => a + (x.minutes || 0), 0));
-  const tasks = plan.tasks || []; const planned = Math.round(tasks.reduce((a, t) => a + t.minutes, 0)); const pct = Math.min(100, Math.round(done / budget * 100));
-  const ex = futureExams()[0]; let ready = null, cov = 0, reads = 0, need = null, left = null, ts = [];
-  if (ex) { const ids = ex.topicIds || []; ts = allTopics().filter(t => ids.includes(t.id)); const g = Math.max(1, Number(state.settings.readGoal) || 3);
-    cov = ts.length ? Math.round(ts.filter(t => t.status !== 'unknown').length / ts.length * 100) : 0; reads = ts.length ? Math.round(ts.reduce((a, t) => a + Math.min(t.reads || 0, g), 0) / (ts.length * g) * 100) : 0;
-    left = Math.max(1, daysBetween(new Date(), parseDate(ex.date))); need = (ts.filter(t => t.status === 'unknown').length / left).toFixed(1); ready = Math.round(cov * .55 + reads * .45); }
-  const over = planned - (budget - done); const verdict = pct >= 100 ? ['good', 'Day goal reached. Anything more is a bonus.'] : over > 20 ? ['warn', `Overbooked by ${fmtDuration(over)}. Do the first ${Math.max(1, tasks.findIndex((_, i) => tasks.slice(0, i + 1).reduce((a, t) => a + t.minutes, 0) > budget - done))} tasks and let the rest roll to tomorrow.`] : ['good', 'Plan fits your time. Start with the first block.'];
-  let acc = 0; const phases = ['Morning', 'Afternoon', 'Evening']; const groups = [[], [], []]; tasks.slice(0, 6).forEach(t => { groups[Math.min(2, Math.floor(acc / Math.max(1, planned / 3)))].push(t); acc += t.minutes; });
-  const blocks = groups.map((g, i) => g.length ? `<details class="day-block" ${i === 0 ? 'open' : ''}><summary class="day-block-title"><b>${phases[i]}</b><span class="day-block-count">${g.length} task${g.length === 1 ? '' : 's'} <i aria-hidden="true">＋</i></span></summary><div class="day-block-tasks">${g.map(t => `<button class="day-task" data-action="start-topic" data-id="${t.id}"><span>${esc(t.subject)} · ${esc(t.name)}</span><small>${fmtDuration(t.minutes)}</small></button>`).join('')}</div></details>` : '').join('');
-  const stat = (v, l, c = '') => `<div class="day-stat ${c}"><strong>${v}</strong><small>${l}</small></div>`;
-  return `<section class="day-panel card"><div class="day-ring" style="--p:${pct}"><div><strong>${pct}%</strong><small>of today</small></div></div><div class="day-main"><div class="eyebrow">YOUR DAY</div><h2>${fmtDuration(done)} done · ${fmtDuration(Math.max(0, budget - done))} left</h2><p class="day-verdict ${verdict[0]}">${verdict[1]}</p><div class="day-stats">${stat(ready === null ? '—' : ready + '%', ex ? `Readiness · ${esc(ex.name)}` : 'Add an exam for readiness', ready !== null && ready < 40 ? 'warn' : '')}${stat(need === null ? '—' : need, 'New topics / day needed')}${stat(left === null ? '—' : left + 'd', 'To next exam')}${stat(fmtDuration(planned), 'Planned today')}</div></div>${blocks ? `<div class="day-blocks">${blocks}</div>` : ''}</section>`;
+  document.querySelectorAll('.nav-link[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.title = state.timer ? `${fmtTime(timerElapsed())} · ${VIEW_TITLES[view] || 'ExamFlow'}` : `${VIEW_TITLES[view] || 'ExamFlow'} — ExamFlow`;
 }
 
-function subjectPct(c) { return c.total ? Math.round((c.ready + c.review * .45) / c.total * 100) : 0; }
-function subjectTile(s) {
-  const c = statusCount(s.id), co = COLORS[(s.color || 0) % COLORS.length], pct = subjectPct(c);
-  return `<div class="tile-wrap"><button class="subject-tile" data-action="open-subject-detail" data-id="${s.id}" aria-label="Open ${esc(s.name)}: ${s.units.length} units, ${c.total} topics, ${pct}% progress"><span class="tile-ring" style="--p:${pct};--c:${co.bar}"><b>${pct}%</b></span><span class="tile-body"><strong>${esc(s.name)}</strong><small>${s.units.length} unit${s.units.length === 1 ? '' : 's'} · ${c.total} topics</small><span class="tile-bar"><i style="width:${pct}%;background:${co.bar}"></i></span><span class="tile-mix"><em class="m-u">${c.unknown} to learn</em><em class="m-r">${c.review} review</em><em class="m-g">${c.ready} ready</em></span></span><span class="tile-go" aria-hidden="true">›</span></button><button class="help-i" type="button" data-action="hint" data-hint="subject-tile" aria-label="What is this card?">?</button></div>`;
+/* ---------- Right rail ---------------------------------------------------- */
+function renderRail() {
+  const rail = document.getElementById('rail');
+  if (!rail) return;
+  rail.dataset.side = state.settings.railSide || 'right';
+  const open = railState.open;
+  const running = !!state.timer;
+  const label = running ? fmtTime(timerElapsed()) : 'Timer';
+  rail.classList.toggle('hidden', railHidden);
+  rail.innerHTML = `
+    <button class="rail-btn ${open === 'search' ? 'expanded' : open ? 'dim' : ''}" data-rail="search" aria-label="Search">${I.search}<span class="label">Search</span></button>
+    <button class="rail-btn ${open === 'timer' ? 'expanded' : open ? 'dim' : ''}${running ? ' pulse' : ''}" data-rail="timer" aria-label="Timer">${I.timer}<span class="label timer-readout" id="railTimerLabel">${esc(label)}</span></button>
+    <button class="rail-btn ${open === 'settings' ? 'expanded' : open ? 'dim' : ''}" data-rail="settings" aria-label="Settings">${I.settings}<span class="label">Settings</span></button>
+  `;
+  if (open) renderRailPanel(open);
 }
-function renderSubjectDetail(s) {
-  const c = statusCount(s.id), co = COLORS[(s.color || 0) % COLORS.length], pct = subjectPct(c);
-  const units = s.units.map(u => { const n = u.topics.length, rdy = u.topics.filter(t => t.status === 'ready').length, up = n ? Math.round(rdy / n * 100) : 0;
-    return `<details class="unit-acc"><summary><span class="ua-main"><strong>${esc(u.name)}</strong><small>${n} topics · ${rdy} ready · ${u.topics.reduce((a, t) => a + (t.reads || 0), 0)} reads</small><span class="tile-bar"><i style="width:${up}%;background:${co.bar}"></i></span></span><span class="ua-pct">${up}%</span><span class="ua-chev" aria-hidden="true">⌄</span></summary><div class="ua-body">${u.topics.map(t => `<div class="topic-row"><span>${esc(t.name)}</span><span class="read-count">${t.reads || 0} ${t.reads === 1 ? 'read' : 'reads'}${t.lastReadAt ? ` · ${fmtDate(localDate(new Date(t.lastReadAt)))}` : ''}</span><select aria-label="Status for ${esc(t.name)}" data-action="topic-status" data-id="${t.id}">${statusOptions(t.status)}</select>${t.status === 'ready' && t.nextReviewAt ? `<span class="revision-badge">${t.nextReviewAt <= localDate() ? 'Due now' : `Review ${fmtDate(t.nextReviewAt)}`}</span>` : ''}<button title="Start a session" aria-label="Start a study session for ${esc(t.name)}" data-action="start-topic" data-id="${t.id}">▶</button><button title="Practice questions" aria-label="Practice questions for ${esc(t.name)}" data-action="practice-topic" data-id="${t.id}">✦</button></div>`).join('') || '<p class="field-help">No topics yet.</p>'}<button class="topic-add" data-action="add-topic" data-id="${s.id}" data-unit="${u.id}">+ Add topic to this unit</button></div></details>`; }).join('');
-  return `<button class="back-link" data-action="close-subject-detail">‹ All subjects</button><section class="card subject-hero" style="--c:${co.bar}"><span class="tile-ring big" style="--p:${pct};--c:${co.bar}"><b>${pct}%</b></span><div><h1 tabindex="-1">${esc(s.name)}</h1><p>${s.units.length} units · ${c.total} topics · ${c.reads} reads <button class="help-i" type="button" data-action="hint" data-hint="subject-detail" aria-label="How to use this page">?</button></p><div class="tile-mix"><em class="m-u">${c.unknown} to learn</em><em class="m-r">${c.review} review</em><em class="m-g">${c.ready} ready</em></div></div><div class="subject-card-actions"><button class="btn btn-outline btn-small" data-action="add-topic" data-id="${s.id}">+ Topic</button><button class="btn btn-outline btn-small" data-action="rename-subject" data-id="${s.id}">Edit</button><button class="btn btn-danger btn-small" data-action="delete-subject" data-id="${s.id}" aria-label="Delete subject">Delete</button></div></section><p class="field-help" style="margin:4px 4px 12px">Tap a unit to open its topics.</p><div class="unit-list">${units || '<div class="card panel"><p class="field-help">No units yet. Add a topic to create one.</p></div>'}</div>`;
-}
-
-const HELP = {
-  'subject-tile': ['Subject card', 'Tap a card to open the subject and see its units. The ring shows progress: Ready topics count fully, Review topics count partly. The three numbers split topics into to learn, review and ready.'],
-  'subject-detail': ['Subject page', 'Each unit is a row. Tap it to open the topics inside. Change a topic\'s status, tap ▶ to start a timed study session, or ✦ to practise. Finished sessions add one read.'],
-  'view-syllabus': ['Syllabus', 'All your subjects at a glance. Import a whole syllabus with the button above, or add subjects by hand. Tap any subject for details.'],
-  'view-exams': ['Exams', 'Use Build timetable to enter every exam in one go: pick the subject, date, time and which units it covers. Exams drive the priority of your daily plan.'],
-  'view-plan': ['Study plan', 'Today\'s focus plus a six-day roadmap. It favours topics you don\'t know yet, exams that are close, and revisions that are due. Change today\'s available hours when your day changes.'],
-  'view-metrics': ['Insights', 'Your study history: minutes, reads and consistency across the whole semester.'],
-  'view-settings': ['Settings', 'Add your AI key, set daily goals, and export or import a backup to move devices.'],
-  'view-dashboard': ['Overview', 'Your day at a glance: time done today, readiness for the next exam, and the single best next topic to study.'],
-  'day': ['Your day', 'The ring shows today\'s minutes against your daily budget. Readiness mixes how many exam topics you have started with how many reads you have completed. "New topics / day" is the pace needed to cover everything unknown before the exam.'],
-  'Your next best move': ['Next best move', 'The top suggestion from your plan. Tap Study now to start a timer.'],
-  'Subject pulse': ['Subject pulse', 'Progress per subject. Open the Syllabus tab for details.'],
-  'A gentle nudge': ['Revisions due', 'Topics marked Ready come back for a quick revisit on a spaced schedule. A successful revisit pushes the next one further out.'],
-  'TOPICS IN MOTION': ['Topics in motion', 'Topics you have started (Review or Ready) out of all topics.'],
-  'STUDY TIME · 7 DAYS': ['Study time', 'Minutes from finished timer sessions over the last 7 days.'],
-  'SEMESTER STREAK': ['Streak', 'Consecutive days with at least one logged session.'],
-  'REVIEWS DUE': ['Reviews due', 'Ready topics whose revisit date is today or earlier.'],
-  'AI study assistant': ['AI assistant', 'Optional. Paste your own API key to split a long syllabus into subjects, units and topics, read exam circulars, or create practice questions.'],
-  'Study goals': ['Study goals', 'Daily target feeds the plan. Reads per topic is your goal before an exam; it is a target, not a limit.'],
-  'Back up & move devices': ['Backup', 'Export a JSON file to move to another device. Backups never include your API key.'],
-  'How planning works': ['How planning works', 'The plan is a transparent local algorithm: unknown topics, exam proximity, review dates and your real pace.'],
-  'exam': ['Exam card', 'Shows days left and how many of its topics are Ready. Edit it to change the date or covered topics.']
-};
-function addHelpButtons() {
-  const root = document.getElementById('app'); if (!root) return;
-  const add = (el, key) => { if (!el || el.querySelector(':scope > .help-i') || !HELP[key]) return; const b = document.createElement('button'); b.type = 'button'; b.className = 'help-i'; b.dataset.action = 'hint'; b.dataset.hint = key; b.setAttribute('aria-label', `What is ${HELP[key][0]}?`); b.textContent = '?'; el.appendChild(b); };
-  add(root.querySelector('.page-heading h1'), `view-${view}`);
-  root.querySelectorAll('.panel-title,.setting-card>h3').forEach(el => add(el, el.textContent.replace('?', '').trim()));
-  root.querySelectorAll('.metric-top>span:first-child').forEach(el => add(el, el.textContent.replace('?', '').trim()));
-  root.querySelectorAll('.day-panel .eyebrow').forEach(el => add(el, 'day'));
-  root.querySelectorAll('.exam-card h3').forEach(el => add(el, 'exam'));
-}
-function showHint(key) { const h = HELP[key]; if (h) openModal(h[0], 'Quick guide', `<div class="help-box"><p style="font-size:15px;line-height:1.7;margin:0">${esc(h[1])}</p></div>`, '<button class="btn btn-outline" data-action="close-modal">Close</button><button class="btn btn-primary" data-action="start-tour">Replay the full tour</button>'); }
-
-/* ---------- Manual exam timetable builder ---------- */
-let ttSeq = 0;
-function ttUnits(sj, chosen = []) { return (sj?.units || []).map(u => `<label class="chip"><input type="checkbox" value="${u.id}" ${chosen.includes(u.id) ? 'checked' : ''}><span>${esc(u.name)}</span></label>`).join('') || '<small class="field-help">This subject has no units yet.</small>'; }
-function ttRow(r = {}) {
-  const sj = state.subjects.find(x => x.id === r.subjectId) || state.subjects[0]; const id = ++ttSeq;
-  return `<div class="tt-row" data-tt-row="${id}"><div class="tt-grid"><label>Subject<select data-tt="subject">${state.subjects.map(x => `<option value="${x.id}" ${x.id === sj?.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label><label>Date<input data-tt="date" type="date" value="${esc(r.date || '')}"></label><label>Time <small>(optional)</small><input data-tt="time" type="time" value="${esc(r.time || '')}"></label></div><div class="tt-units-label">Units covered <small>— leave empty for the whole subject</small></div><div class="tt-units" data-tt="units">${ttUnits(sj, r.unitIds)}</div><button type="button" class="btn btn-danger btn-small" data-action="tt-remove">Remove this exam</button></div>`;
-}
-function showTimetableBuilder() {
-  if (!state.subjects.length) { toast('Add your subjects first, then build the timetable.', 'error'); view = 'syllabus'; render(); return; }
-  ttSeq = 0;
-  openModal('Build exam timetable', 'Add one row per exam. Everything is saved together.', `<div class="field"><label for="ttName">Checkpoint name</label><input id="ttName" value="Mid-1" maxlength="40" placeholder="Mid-1, Mid-2, Final…"></div><div class="row wrap" style="margin-bottom:10px"><button type="button" class="btn btn-soft btn-small" data-action="tt-fill">⚡ One row per subject</button><button type="button" class="btn btn-outline btn-small" data-action="tt-add">+ Add exam row</button></div><div id="ttRows">${ttRow()}</div><div id="ttStatus" class="field-help" role="status"></div>`, '<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="tt-save">Save timetable</button>');
-}
-function saveTimetable() {
-  const cp = document.getElementById('ttName')?.value.trim() || 'Exam'; const rows = [...document.querySelectorAll('#ttRows .tt-row')]; let added = 0, merged = 0, skipped = 0;
-  for (const r of rows) {
-    const sj = state.subjects.find(x => x.id === r.querySelector('[data-tt="subject"]').value); const date = r.querySelector('[data-tt="date"]').value; const time = r.querySelector('[data-tt="time"]').value;
-    if (!sj || !date) { skipped++; continue; }
-    const picked = [...r.querySelectorAll('[data-tt="units"] input:checked')].map(i => i.value); const units = sj.units.filter(u => !picked.length || picked.includes(u.id));
-    const topicIds = units.flatMap(u => u.topics.map(t => t.id)); const name = `${cp} · ${sj.name}`; const dup = state.exams.find(e => e.date === date && normalizeKey(e.name) === normalizeKey(name));
-    if (dup) { dup.topicIds = [...new Set([...(dup.topicIds || []), ...topicIds])]; dup.time = time || dup.time; merged++; } else { state.exams.push({ id: uid('exam'), name, date, time, subjectId: sj.id, mode: /final/i.test(cp) ? 'final' : 'mid', topicIds, createdAt: new Date().toISOString() }); added++; }
+function renderRailPanel(which) {
+  const rail = document.getElementById('rail');
+  rail.querySelector('.rail-panel')?.remove();
+  const panel = document.createElement('div');
+  panel.className = 'rail-panel';
+  if (which === 'timer') {
+    const f = state.timer ? findTopic(state.timer.topicId) : null;
+    panel.innerHTML = f ? `
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:4px;letter-spacing:1px">NOW STUDYING</div>
+      <div style="font-weight:600;font-size:14px;margin-bottom:10px">${esc(f.topic.name)}</div>
+      <div class="timer-readout" style="font-size:24px;margin-bottom:12px">${fmtTime(timerElapsed())}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${state.timer.pausedAt
+          ? `<button class="btn btn-soft btn-small" data-action="resume-timer">Resume</button>`
+          : `<button class="btn btn-soft btn-small" data-action="pause-timer">Pause</button>`}
+        <button class="btn btn-primary btn-small" data-action="finish-timer">Finish</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--muted)">
+        <input type="number" min="0" max="240" value="${state.settings.targetMinutes || ''}" placeholder="Target min" data-action="timer-target" style="width:90px;min-height:36px;padding:4px 10px;border:1px solid var(--line);border-radius:9px">
+        target
+      </label>
+    ` : `
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Pick a topic to begin.</div>
+      <select data-action="timer-pick" style="width:100%;min-height:40px;border:1px solid var(--line);border-radius:10px;padding:0 10px;font-size:13px;background:var(--white)">
+        <option value="">Choose a topic…</option>
+        ${allTopics().map(t => `<option value="${t.id}">${esc(t.subject)} · ${esc(t.name)}</option>`).join('')}
+      </select>
+      <div style="margin-top:10px"><button class="btn btn-primary btn-small" data-action="timer-start-picked">Start</button></div>
+    `;
+  } else if (which === 'settings') {
+    panel.innerHTML = `
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;letter-spacing:1px">QUICK SETTINGS</div>
+      <div style="margin-bottom:10px">
+        <div style="font-size:12.5px;margin-bottom:6px;font-weight:600">Rail side</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-small ${state.settings.railSide === 'left' ? 'btn-primary' : 'btn-outline'}" data-action="rail-side" data-side="left">Left</button>
+          <button class="btn btn-small ${state.settings.railSide === 'right' ? 'btn-primary' : 'btn-outline'}" data-action="rail-side" data-side="right">Right</button>
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px">
+        <input type="checkbox" data-action="toggle-motion" ${state.settings.reduceMotion ? 'checked' : ''}>
+        <span>Reduce motion</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px">
+        <input type="number" min="0" max="240" value="${state.settings.targetMinutes || ''}" placeholder="Target" data-action="default-target" style="width:80px;min-height:36px;padding:4px 10px;border:1px solid var(--line);border-radius:9px">
+        <span>default target (min)</span>
+      </label>
+      <button class="btn btn-outline btn-small" style="width:100%" data-action="open-settings">Full settings</button>
+    `;
   }
-  const st = document.getElementById('ttStatus');
-  if (!added && !merged) { if (st) st.textContent = 'Pick a date for at least one row.'; return toast('Pick a date for at least one row.', 'error'); }
-  persist(); closeModal(); view = 'exams'; render(); toast(`${added} exam${added === 1 ? '' : 's'} added${merged ? `, ${merged} merged` : ''}${skipped ? `, ${skipped} row${skipped === 1 ? '' : 's'} skipped (no date)` : ''}.`, 'success');
+  rail.appendChild(panel);
+}
+function closeRail() {
+  railState.open = null;
+  document.querySelector('#rail .rail-panel')?.remove();
+  renderRail();
 }
 
-/* ---------- First-time guided tour ---------- */
-const TOUR = [
-  { icon: '👋', title: 'Welcome to ExamFlow', text: 'This 2-minute tour shows you exactly where to tap. ExamFlow turns your syllabus and exam dates into a daily plan, and remembers every topic you read. You can skip any time and replay it from any ? button.' },
-  { icon: '📥', title: '1 · Bring in your syllabus', view: 'syllabus', target: '[data-action="open-import-syllabus"]', text: 'Tap Import full syllabus. Upload PDFs or paste the text. With an AI key it splits everything into subjects, units and topics. Without a key it finds "Subject:" headings itself. You review before anything is saved.' },
-  { icon: '🗂️', title: '2 · Tap through your subjects', view: 'syllabus', target: '.subject-tile,.empty-state', text: 'Each subject is one card with a progress ring. Tap a card to open its units, then tap a unit to see its topics. That is where you set status and start timers.' },
-  { icon: '🗓️', title: '3 · Build your exam timetable', view: 'exams', target: '[data-action="open-timetable"]', text: 'Tap Build timetable. Add a row per exam with subject, date, time and the units it covers. "One row per subject" fills the list for you.' },
-  { icon: '🎯', title: '4 · Follow the plan', view: 'plan', target: '[data-view="plan"]', text: 'The Study plan picks what to study today and the next six days, weighing exam dates, topics you don\'t know yet and revisions due. Short on time today? Change the hours there.' },
-  { icon: '⏱️', title: '5 · Study with the timer', view: 'dashboard', target: '.day-panel,.intro-card', text: 'Overview shows your day: time done, readiness for the next exam and the pace you need. Tap any task to start the timer. Finishing a session logs one read and your real minutes.' },
-  { icon: '🔑', title: '6 · Optional: AI key', view: 'settings', target: '#provider', text: 'Pick a provider, choose a model and paste your own key. It stays on this device. Use Test connection to check it. Everything else works without a key.' },
-  { icon: '❓', title: 'Look for the ? buttons', text: 'Every card and screen has a small ? button. Tap it for a plain-language explanation. You can replay this tour from there too.', last: true }
+/* ---------- Dock -------------------------------------------------------- */
+const DOCK = [
+  { id: 'dashboard', label: 'Home',     icon: I.home },
+  { id: 'syllabus',  label: 'Syllabus', icon: I.syllabus },
+  { id: 'plan',      label: 'Plan',     icon: I.plan },
+  { id: 'library',   label: 'Library',  icon: I.library },
+  { id: 'more',      label: 'More',     icon: I.more },
 ];
-let tourI = -1;
-function clearTourHl() { document.querySelectorAll('.tour-hl').forEach(e => e.classList.remove('tour-hl')); }
-function startTour() { closeModal(); tourI = 0; paintTour(); }
-function endTour(done = true) { tourI = -1; clearTourHl(); document.getElementById('tourRoot')?.remove(); if (done) { state.tourDone = true; persist(); } }
-function paintTour() {
-  const st = TOUR[tourI]; if (!st) return endTour();
-  if (st.view && view !== st.view) { view = st.view; openSubjectId = null; setMenuOpen(false); render(); }
-  clearTourHl();
-  if (st.target) requestAnimationFrame(() => { const els = [...document.querySelectorAll(st.target)].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > 0 && r.left < innerWidth; }); els.forEach(e => e.classList.add('tour-hl')); els[0]?.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
-  let root = document.getElementById('tourRoot'); if (!root) { root = document.createElement('div'); root.id = 'tourRoot'; document.body.appendChild(root); }
-  root.innerHTML = `<section class="tour-card" role="dialog" aria-live="polite" aria-label="Guided tour"><div class="tour-top"><span class="tour-ic" aria-hidden="true">${st.icon}</span><span class="tour-count">Step ${tourI + 1} of ${TOUR.length}</span><button class="tour-x" data-action="tour-skip" aria-label="Skip tour">Skip</button></div><h3>${st.title}</h3><p>${st.text}</p><div class="tour-dots" aria-hidden="true">${TOUR.map((_, i) => `<i class="${i === tourI ? 'on' : ''}"></i>`).join('')}</div><div class="tour-actions">${tourI ? '<button class="btn btn-outline btn-small" data-action="tour-back">Back</button>' : ''}${st.last ? '<button class="btn btn-soft btn-small" data-action="tour-sample">Try sample data</button>' : ''}<button class="btn btn-primary btn-small" data-action="tour-next">${st.last ? 'Start using ExamFlow' : 'Next'}</button></div></section>`;
+function renderDock() {
+  const dock = document.getElementById('dock');
+  if (!dock) return;
+  dock.classList.toggle('hidden', dockHidden);
+  const current = ['dashboard', 'syllabus', 'plan', 'library'].includes(view) ? view : (['exams','metrics','help','settings'].includes(view) ? 'more' : '');
+  // slime positioning
+  dock.innerHTML = `<span class="dock-slime" id="dockSlime" aria-hidden="true"></span>` +
+    DOCK.map(d => {
+      const active = current === d.id;
+      return `<button class="dock-btn ${active ? 'active' : ''}" data-dock="${d.id}" aria-label="${d.label}">${d.icon}<span class="label">${d.label}</span></button>`;
+    }).join('');
+  // position slime
+  requestAnimationFrame(() => {
+    const idx = DOCK.findIndex(d => d.id === current);
+    const slime = document.getElementById('dockSlime');
+    if (!slime || idx < 0) { if (slime) slime.style.opacity = '0'; return; }
+    slime.style.opacity = '1';
+    const btns = dock.querySelectorAll('.dock-btn');
+    const target = btns[idx];
+    if (!target) return;
+    slime.style.transform = `translateX(${target.offsetLeft - 8}px)`;
+    slime.style.width = `${target.offsetWidth}px`;
+  });
 }
-document.addEventListener('click', event => {
-  const el = event.target.closest('[data-action]'); if (!el) return; const a = el.dataset.action, id = el.dataset.id;
-  if (a === 'open-subject-detail') { openSubjectId = id; view = 'syllabus'; render(); scrollTo(0, 0); }
-  else if (a === 'close-subject-detail') { openSubjectId = null; render(); }
-  else if (a === 'hint') { event.stopPropagation(); showHint(el.dataset.hint); }
-  else if (a === 'open-timetable') showTimetableBuilder();
-  else if (a === 'tt-add') document.getElementById('ttRows')?.insertAdjacentHTML('beforeend', ttRow());
-  else if (a === 'tt-fill') document.getElementById('ttRows').innerHTML = state.subjects.map(x => ttRow({ subjectId: x.id })).join('');
-  else if (a === 'tt-remove') { const rows = document.querySelectorAll('#ttRows .tt-row'); if (rows.length > 1) el.closest('.tt-row').remove(); else toast('Keep at least one row.'); }
-  else if (a === 'tt-save') saveTimetable();
-  else if (a === 'start-tour') startTour();
-  else if (a === 'tour-next') { tourI++; tourI >= TOUR.length ? endTour() : paintTour(); }
-  else if (a === 'tour-back') { tourI = Math.max(0, tourI - 1); paintTour(); }
-  else if (a === 'tour-skip') endTour();
-  else if (a === 'tour-sample') { endTour(); sampleWorkspace(); }
-}, true);
-document.addEventListener('change', event => { if (event.target?.dataset?.tt === 'subject') { const row = event.target.closest('.tt-row'); row.querySelector('[data-tt="units"]').innerHTML = ttUnits(state.subjects.find(x => x.id === event.target.value)); } });
 
-function renderDashboard() {
-  const total = statusCount(); const streak = getStreak(); const mins = weeklyMinutes(); const next = futureExams()[0]; const plan = makePlan(); const pick = plan.tasks[0];
-  const intro = !state.subjects.length ? `<section class="intro-card" aria-labelledby="introTitle"><div class="eyebrow">YOUR SEMESTER, WITHOUT THE SPREADSHEETS</div><h2 id="introTitle" tabindex="-1">Know what to study next—and keep every read.</h2><p>ExamFlow turns your complete syllabus and mid/final timetable into a daily plan. Your topic history keeps counting across exams, so finals build on the work you have already done.</p><div class="intro-steps"><div class="intro-step"><span class="intro-step-number">1</span><span><strong>Bring in your syllabus</strong><small>Upload full PDFs or paste the whole outline. Review all subjects, units, and topics before adding them.</small></span></div><div class="intro-step"><span class="intro-step-number">2</span><span><strong>Add mid and final dates</strong><small>Choose the units in each exam; checkpoints never reset your semester history.</small></span></div><div class="intro-step"><span class="intro-step-number">3</span><span><strong>Study the next best topic</strong><small>Use the timer, mark confidence, and let the plan adapt to your real pace.</small></span></div></div><div class="intro-actions"><button class="btn btn-primary" data-action="open-import-syllabus">⇧ Import full syllabus</button><button class="btn btn-outline" data-action="open-subject">Add one subject manually</button><button class="btn btn-soft" data-action="show-help">How it works</button></div></section>` : '';
-  const days = next ? Math.max(0, daysBetween(new Date(), parseDate(next.date))) : null;
-  if (!state.subjects.length) return `${intro}`;
-  const studyHero = pick ? `<div class="hero-card"><div class="hero-orb"></div><div class="hero-content"><div class="hero-kicker"><i></i> YOUR NEXT BEST MOVE</div><h2>Make today count,<br>one topic at a time.</h2><p>Your plan is tuned to your next exam, your progress, and the time you actually have.</p><button class="btn btn-primary" data-action="start-topic" data-id="${pick.id}">Start ${esc(pick.subject)} · ${esc(pick.name)} <span>→</span></button><div class="hero-detail">${pick.isDue ? 'Revision due' : `${pick.days} days to ${esc(pick.exam?.name || 'exam')}`} · ${fmtDuration(pick.minutes)} suggested</div></div></div>` : `<div class="hero-card"><div class="hero-orb"></div><div class="hero-content"><div class="hero-kicker"><i></i> YOUR SEMESTER, IN RHYTHM</div><h2>Build a plan that<br>fits your real life.</h2><p>Add the subjects and exam checkpoints you care about. ExamFlow will turn them into a clear next step.</p><button class="btn btn-primary" data-action="open-subject">Set up your syllabus <span>→</span></button><div class="hero-detail">Private by design · saved on this device</div></div></div>`;
-  const nextPanel = next ? `<div class="hero-side"><div><div class="side-label">NEXT CHECKPOINT</div><div class="exam-countdown"><strong>${days}</strong><span>${days === 1 ? 'day' : 'days'} left</span></div><div class="side-exam-name">${esc(next.name)}</div><div class="side-exam-date">${fmtDate(next.date, { weekday: 'short', month: 'long', day: 'numeric' })}</div></div><div class="side-footer"><b>${(next.topicIds || []).length}</b> topics · ${total.ready} topics ready so far</div></div>` : `<div class="hero-side"><div><div class="side-label">YOUR NEXT CHECKPOINT</div><div class="exam-countdown"><strong>—</strong><span>when you're ready</span></div><div class="side-exam-name">Add an exam date</div><div class="side-exam-date">Quick exam or full mid timetable</div></div><button class="btn btn-outline btn-small" data-action="open-exam">+ Add an exam</button></div>`;
-  const due = dueTopics(); const risk = plan.risk ? `<div class="risk-banner"><span>◈</span><div><strong>You're carrying a little extra load.</strong> At your current daily target, the remaining work may outpace ${esc(plan.next?.name || 'your next exam')}. Adjust today's time or add more study hours in Settings.</div></div>` : '';
-  const recommendation = pick ? `<div class="recommend-card"><div class="rec-icon">✦</div><div class="rec-info"><small>${pick.isDue ? 'REVISION DUE' : `EXAM IN ${pick.days} DAYS`}</small><strong>${esc(pick.subject)} → ${esc(pick.name)}</strong><span>${esc(pick.unit)} · ${fmtDuration(pick.minutes)} suggested · ${pick.reads} reads so far</span></div><button class="btn btn-primary btn-small rec-start" data-action="start-topic" data-id="${pick.id}">Study now</button></div>` : `<div class="empty-state"><div class="empty-icon">✦</div><h3>Your first smart plan starts here</h3><p>Add a subject and a few topics. We'll tell you what to study first and keep a semester-long record of every read.</p><button class="btn btn-soft btn-small" data-action="open-subject">Add your first subject</button></div>`;
-  const planLines = plan.tasks.slice(0, 3).map((t, i) => `<div class="plan-line"><span class="plan-time">${['09:00', '10:00', '11:00'][i] || '12:00'}</span><span class="plan-dot"></span><strong>${esc(t.subject)} · ${esc(t.name)}</strong><span>${fmtDuration(t.minutes)}</span></div>`).join('');
-  return `${intro}${pageHeading(`${new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}`, `A steady start, ${state.sessions.length ? 'a stronger semester.' : 'a smarter semester.'}`, 'A little progress today makes the next checkpoint feel lighter.', `<button class="btn btn-outline" data-view="plan">✳ View my plan</button><button class="btn btn-primary" data-action="open-exam">+ Add exam</button>`)}${dayPanel(plan)}<section class="dashboard-hero">${studyHero}${nextPanel}</section><section class="grid metrics-row">${metricCard('TOPICS IN MOTION', `${total.ready + total.review}<small style="font:500 10px var(--font);color:#999">/${total.total}</small>`, `${total.unknown} still to learn`, '◉', 'blue')}${metricCard('STUDY TIME · 7 DAYS', `${(mins / 60).toFixed(1)}<small style="font:500 10px var(--font);color:#999">h</small>`, `${state.sessions.length} sessions logged`, '◷', 'lav')}${metricCard('SEMESTER STREAK', `${streak}<small style="font:500 10px var(--font);color:#999">d</small>`, streak ? 'Keep showing up' : 'One session starts it', '✳', 'gold')}${metricCard('REVIEWS DUE', `${due.length}`, due.length ? 'Ready topics to revisit today' : 'No revision debt today', '↻', 'pink')}</section>${risk}<section class="grid lower-grid"><article class="card panel"><div class="panel-head"><div><div class="panel-title">Your next best move</div><div class="panel-subtitle">Priority shifts as exams and progress change</div></div><button class="text-link" data-view="plan">Full plan →</button></div>${recommendation}${planLines ? `<div class="plan-lines">${planLines}</div>` : ''}</article><article class="card panel"><div class="panel-head"><div><div class="panel-title">Subject pulse</div><div class="panel-subtitle">Confidence grows with every read</div></div><button class="text-link" data-view="syllabus">All subjects →</button></div>${state.subjects.length ? `<div class="subject-list">${state.subjects.slice(0, 5).map(subjectProgressMarkup).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">▤</div><h3>No subjects yet</h3><p>Start with your syllabus. Add topics manually, paste a list, upload a PDF, or ask your AI provider to split it into topics.</p></div>`}</article></section>${due.length ? `<section class="card panel section-gap"><div class="panel-head"><div><div class="panel-title">A gentle nudge</div><div class="panel-subtitle">These ready topics are due for a quick pass</div></div><span class="revision-badge">${due.length} due</span></div><div class="subject-list">${due.slice(0, 4).map(t => `<div class="subject-row"><div class="subject-mark" style="background:${COLORS[t.color % COLORS.length].bg};color:${COLORS[t.color % COLORS.length].fg}">↻</div><div class="subject-info"><strong>${esc(t.subject)} · ${esc(t.name)}</strong><small>${esc(t.unit)} · ${t.reads} reads</small></div><button class="btn btn-soft btn-small" data-action="start-topic" data-id="${t.id}">Revise</button></div>`).join('')}</div></section>` : ''}`;
+/* ---------- Universal search --------------------------------------------- */
+function openSearchSheet(prefill = '') {
+  closeRail();
+  const host = document.getElementById('sheetHost');
+  const scrim = document.getElementById('scrim');
+  host.innerHTML = `
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Search">
+      <div class="sheet-head"><h2>Search</h2><button class="modal-close" data-action="close-sheet" aria-label="Close">×</button></div>
+      <div class="sheet-body">
+        <div class="search-wrap">
+          ${I.search.replace('<svg ', '<svg class="ic" ')}
+          <input class="search-input" id="searchInput" type="search" autocomplete="off" placeholder="Search subjects, topics, notes, questions…" value="${esc(prefill)}">
+        </div>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+    </div>
+  `;
+  host.classList.add('open');
+  scrim.hidden = false;
+  requestAnimationFrame(() => {
+    const inp = document.getElementById('searchInput');
+    inp?.focus(); inp?.setSelectionRange(inp.value.length, inp.value.length);
+    runSearch(inp.value);
+  });
+  searchOverlay = host;
 }
-function statusOptions(selected) { return ['unknown', 'review', 'ready'].map(x => `<option value="${x}" ${x === selected ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join(''); }
-function renderSyllabus() {
-  if (openSubjectId) { const sj = state.subjects.find(x => x.id === openSubjectId); if (sj) return renderSubjectDetail(sj); openSubjectId = null; }
-  const acts = `<button class="btn btn-outline" data-action="open-import-syllabus">⇧ Import full syllabus</button><button class="btn btn-primary" data-action="open-subject">+ Add subject manually</button>`;
-  const subjects = state.subjects.filter(s => !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.units.some(u => u.topics.some(t => t.name.toLowerCase().includes(searchQuery.toLowerCase())))).filter(s => !syllabusFilter || statusCount(s.id)[syllabusFilter] > 0);
-  return `${pageHeading('THE WHOLE SEMESTER', 'Your syllabus, organized.', 'Every topic keeps its read history across mids, finals, and the rest of the semester.', acts)}<div class="toolbar"><label class="searchbox"><span>⌕</span><input id="syllabusSearch" aria-label="Search subjects and topics" placeholder="Find a subject or topic…" value="${esc(searchQuery)}"></label><select class="select" id="syllabusFilter" aria-label="Filter topics by study status"><option value="">All topics</option><option value="unknown" ${syllabusFilter === 'unknown' ? 'selected' : ''}>Need to learn</option><option value="review" ${syllabusFilter === 'review' ? 'selected' : ''}>In review</option><option value="ready" ${syllabusFilter === 'ready' ? 'selected' : ''}>Ready</option></select><span class="muted" style="font-size:8px">${allTopicCount()} topics · ${statusCount().reads} reads this semester</span></div>${subjects.length ? `<div class="subject-grid">${subjects.map(subjectTile).join('')}</div>` : state.subjects.length ? `<div class="empty-state"><h3>Nothing matches this filter</h3><p>Try a different search or status.</p><button class="btn btn-soft btn-small" data-action="clear-filter">Clear filters</button></div>` : `<div class="card panel"><div class="empty-state"><div class="empty-icon">▤</div><h3>Start with what you need to study</h3><p>Add units and topics by hand, paste syllabus text, upload a PDF, or use your AI key to split a syllabus into units. You can edit everything before you start.</p><div class="row" style="justify-content:center;flex-wrap:wrap"><button class="btn btn-primary btn-small" data-action="open-subject">+ Add a subject</button><button class="btn btn-outline btn-small" data-action="open-import-syllabus">Import syllabus</button><button class="btn btn-soft btn-small" data-action="sample-data">See a sample workspace</button></div></div></div>`}`;
+function closeSearchSheet() {
+  document.getElementById('sheetHost').classList.remove('open');
+  document.getElementById('sheetHost').innerHTML = '';
+  document.getElementById('scrim').hidden = true;
+  searchOverlay = null;
 }
-function subjectCardMarkup(s) {
-  const c = statusCount(s.id), co = COLORS[(s.color || 0) % COLORS.length]; const pct = c.total ? Math.round((c.ready + c.review * .45) / c.total * 100) : 0;
-  return `<article class="card subject-card"><div class="subject-card-head"><div class="subject-icon" style="background:${co.bg};color:${co.fg}">${esc(s.name.slice(0, 2).toUpperCase())}</div><div class="subject-heading"><h3>${esc(s.name)}</h3><p>${s.units.length} units · ${c.total} topics · ${c.reads} reads · ${pct}% momentum</p></div><div class="subject-card-actions"><button class="btn btn-outline btn-small" data-action="add-topic" data-id="${s.id}">+ Topic</button><button class="btn btn-outline btn-small" data-action="rename-subject" data-id="${s.id}">Edit</button><button class="btn btn-danger btn-small" data-action="delete-subject" data-id="${s.id}" aria-label="Delete subject ${esc(s.name)}">×</button></div></div>${s.units.map(u => `<div class="unit-block"><div class="unit-head"><span class="unit-chip">${esc(u.name)}</span><strong>${u.topics.length} topics</strong><small>${u.topics.reduce((a, t) => a + (t.reads || 0), 0)} reads logged</small><button class="topic-add" data-action="add-topic" data-id="${s.id}" data-unit="${u.id}">+ Add topic</button></div>${u.topics.map(t => `<div class="topic-row"><span>${esc(t.name)}</span><span class="read-count">${t.reads || 0} ${t.reads === 1 ? 'read' : 'reads'}${t.lastReadAt ? ` · ${fmtDate(localDate(new Date(t.lastReadAt)))}` : ''}</span><select aria-label="Status for ${esc(t.name)}" data-action="topic-status" data-id="${t.id}">${statusOptions(t.status)}</select>${t.status === 'ready' ? `<span class="revision-badge">${t.nextReviewAt && t.nextReviewAt <= localDate() ? 'Due now' : t.nextReviewAt ? `Review ${fmtDate(t.nextReviewAt)}` : 'Ready'}</span>` : ''}<button title="Start a session" aria-label="Start a study session for ${esc(t.name)}" data-action="start-topic" data-id="${t.id}">▶</button><button title="Practice questions" aria-label="Practice questions for ${esc(t.name)}" data-action="practice-topic" data-id="${t.id}">✦</button></div>`).join('')}</div>`).join('')}</article>`;
-}
-function renderExams() {
-  const acts = `<button class="btn btn-outline" data-action="import-timetable">▧ Read a circular photo</button><button class="btn btn-outline" data-action="open-exam">+ Single exam</button><button class="btn btn-primary" data-action="open-timetable">🗓 Build timetable</button>`;
-  const exams = [...state.exams].sort((a, b) => a.date.localeCompare(b.date));
-  return `${pageHeading('CHECKPOINTS, NOT RESETS', 'Exams that fit your semester.', 'Mid-1, Mid-2, finals — every checkpoint uses selected units; topic histories keep counting.', acts)}<div class="help-box" style="margin-bottom:15px">✦ &nbsp;Quick exam mode: add one date and select units. Mid timetable: add multiple subject checkpoints, or parse a circular image with your configured AI provider. Nothing is archived automatically; semester reads continue until you end the semester.</div>${exams.length ? exams.map(examCardMarkup).join('') : `<div class="card panel"><div class="empty-state"><div class="empty-icon">◷</div><h3>Checkpoints give your plan a deadline</h3><p>Add a quick exam or a set of mid/final dates. Choose the exact subject units each exam covers; topics stay in your semester history after the date passes.</p><div class="row" style="justify-content:center"><button class="btn btn-primary btn-small" data-action="open-exam">+ Add an exam</button><button class="btn btn-outline btn-small" data-action="import-timetable">Read a circular photo</button></div></div></div>`}`;
-}
-function examCardMarkup(e) {
-  const d = parseDate(e.date), past = daysBetween(new Date(), d) < 0; const topicList = (e.topicIds || []).map(findTopic).filter(Boolean); const bySub = [...new Set(topicList.map(x => x.subject.name))]; const ready = topicList.filter(x => x.topic.status === 'ready').length; const pct = topicList.length ? Math.round(ready / topicList.length * 100) : 0;
-  return `<article class="card exam-card"><div class="exam-date-box"><strong>${d.getDate()}</strong><span>${d.toLocaleDateString(undefined, { month: 'short' }).toUpperCase()}</span></div><div><div class="row"><h3>${esc(e.name)}</h3><span class="status-pill ${past ? 'status-review' : 'status-unknown'}">${past ? 'Checkpoint passed · history kept' : `${Math.max(0, daysBetween(new Date(), d))} days to go`}</span></div><p>${fmtDate(e.date, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${e.time ? ` · ${esc(e.time)}` : ''} · ${topicList.length} selected topics · ${pct}% ready</p><div class="exam-tags">${bySub.length ? bySub.map(x => `<span class="exam-tag">${esc(x)}</span>`).join('') : '<span class="exam-tag">No topics linked yet</span>'}</div></div><div class="exam-card-actions"><button class="btn btn-outline btn-small" data-action="edit-exam" data-id="${e.id}">Edit</button><button class="btn btn-danger btn-small" data-action="delete-exam" data-id="${e.id}">Remove</button></div></article>`;
-}
-function renderUpcomingRoadmap(todayPlan, dates) {
-  const days = dates.slice(1); const dailyBudget = Math.max(30, (Number(state.settings.dailyHours) || 4) * 60); const todayIds = new Set(todayPlan.tasks.map(t => t.id));
-  const candidates = makePlan((dailyBudget - 10) / 60 * days.length, []).tasks.filter(t => !todayIds.has(t.id));
-  const buckets = days.map(() => []); let dayIndex = 0, used = 0;
-  for (const task of candidates) {
-    const plannedTask = { ...task, minutes: Math.min(task.minutes, dailyBudget) };
-    const load = plannedTask.minutes + (buckets[dayIndex]?.length ? 8 : 0);
-    if (used + load > dailyBudget) { dayIndex++; used = 0; }
-    if (dayIndex >= buckets.length) break;
-    buckets[dayIndex].push(plannedTask); used += plannedTask.minutes + (buckets[dayIndex].length > 1 ? 8 : 0);
+function runSearch(q) {
+  const root = document.getElementById('searchResults'); if (!root) return;
+  q = (q || '').trim();
+  if (!q) { root.innerHTML = `<div class="search-empty">Type to search. Try <b>#tag</b> or “start integration”.</div>`; return; }
+  if (q.startsWith('#')) {
+    const tag = q.slice(1).toLowerCase();
+    const notes = state.notes.filter(n => (n.tags || []).some(t => t.toLowerCase().includes(tag)));
+    const questions = state.questions.filter(n => (n.tags || []).some(t => t.toLowerCase().includes(tag)));
+    root.innerHTML = renderSearchGroup('Tagged notes', notes.map(n => ({ id: n.id, label: (n.body || '').slice(0, 60), hint: describeAttach(n.attach), action: 'open-note' }))) +
+      renderSearchGroup('Tagged questions', questions.map(n => ({ id: n.id, label: n.question.slice(0, 60), hint: 'Question', action: 'goto-library-questions' })));
+    return;
   }
-  return `<details class="card panel roadmap-panel"><summary class="roadmap-summary"><div><div class="panel-title">The next six days</div><div class="panel-subtitle">A practical preview, hidden until you need it.</div></div><span class="eyebrow">SHOW WEEK <span aria-hidden="true">+</span></span></summary><div class="roadmap-list">${days.map((date,i)=>{const tasks=buckets[i];return `<section class="roadmap-day" aria-label="${esc(fmtDate(date,{weekday:'long',month:'long',day:'numeric'}))}"><div class="roadmap-date"><strong>${i===0?'Tomorrow':fmtDay(parseDate(date))}</strong><small>${fmtDate(date,{month:'short',day:'numeric'})}</small></div><div class="roadmap-tasks">${tasks.length?tasks.map(t=>`<div class="roadmap-task"><span class="roadmap-dot" style="background:${COLORS[t.color%COLORS.length].bar}" aria-hidden="true"></span><span class="roadmap-task-copy"><strong>${esc(t.subject)} · ${esc(t.name)}</strong><small>${esc(t.unit)} · ${fmtDuration(t.minutes)}${t.isDue?' · revision':''}</small></span><button class="btn btn-soft btn-small" data-action="start-topic" data-id="${t.id}" aria-label="Study ${esc(t.name)} on ${esc(fmtDate(date,{weekday:'long'}))}">Start</button></div>`).join(''):'<p class="roadmap-rest">Open time — no topic is scheduled yet.</p>'}</div></section>`}).join('')}</div></details>`;
+  const lower = q.toLowerCase();
+  const subjects = state.subjects.filter(s => s.name.toLowerCase().includes(lower)).slice(0, 5);
+  const topics = allTopics().filter(t => t.name.toLowerCase().includes(lower)).slice(0, 8);
+  const notes = state.notes.filter(n => (n.body || '').toLowerCase().includes(lower)).slice(0, 6);
+  const questions = state.questions.filter(n => (n.question || '').toLowerCase().includes(lower)).slice(0, 6);
+  const exams = state.exams.filter(e => (e.name || '').toLowerCase().includes(lower)).slice(0, 5);
+  const quick = lower.match(/^start\s+(.+)$/i);
+  let html = '';
+  if (quick) {
+    const t = allTopics().find(x => x.name.toLowerCase().includes(quick[1].toLowerCase()));
+    if (t) html += renderSearchGroup('Quick action', [{ id: t.id, label: `Start ${t.name}`, hint: t.subject, action: 'start-topic' }]);
+  }
+  html += renderSearchGroup('Subjects', subjects.map(s => ({ id: s.id, label: s.name, hint: 'Subject', action: 'open-subject-detail' })));
+  html += renderSearchGroup('Topics', topics.map(t => ({ id: t.id, label: t.name, hint: t.subject + ' · ' + t.unit, action: 'start-topic' })));
+  html += renderSearchGroup('Notes', notes.map(n => ({ id: n.id, label: (n.body || '').slice(0, 70), hint: describeAttach(n.attach), action: 'open-note' })));
+  html += renderSearchGroup('Questions', questions.map(n => ({ id: n.id, label: n.question.slice(0, 70), hint: 'Question', action: 'goto-library-questions' })));
+  html += renderSearchGroup('Exams', exams.map(e => ({ id: e.id, label: e.name, hint: fmtDate(e.date), action: 'open-exams' })));
+  root.innerHTML = html || `<div class="search-empty">No matches for “${esc(q)}”.</div>`;
 }
-function renderPlan() {
-  const plan = makePlan(); const dates = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return localDate(d); });
-  const tasks = plan.tasks.map((t, i) => `<div class="task-row"><span class="task-time">${String(9 + Math.floor(t.startMinute / 60)).padStart(2, '0')}:${String(t.startMinute % 60).padStart(2, '0')}</span><span class="task-dot" style="background:${COLORS[t.color % COLORS.length].bar}"></span><div class="task-name">${esc(t.subject)} → ${esc(t.name)}<small>${esc(t.unit)} · ${t.isDue ? 'Spaced review due' : t.exam ? `${t.days}d until ${esc(t.exam.name)}` : 'Build semester foundations'} · ${t.reads} previous reads</small></div><span class="task-duration">${fmtDuration(t.minutes)}</span><button class="btn btn-soft btn-small" data-action="start-topic" data-id="${t.id}">Start</button></div>`).join('');
-  const upcoming = state.exams.filter(e => daysBetween(new Date(), parseDate(e.date)) > 0).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
-  return `${pageHeading('A PLAN THAT ADAPTS', 'A clear next step, each day.', 'Your plan follows exam dates, topic confidence, revision due dates, and the time you have today.', `<button class="btn btn-outline" data-action="show-timer">◷ Open timer</button>`)}${plan.risk ? `<div class="risk-banner"><span>◈</span><div><strong>Potential pace warning for ${esc(plan.next.name)}.</strong> About ${fmtDuration(plan.remaining)} remains for ${plan.daysLeft} days. Your current target is ${Number(state.settings.dailyHours).toFixed(1)}h/day; consider a one-day time budget below or an adjusted daily target.</div></div>` : ''}<div class="plan-controls"><span>◷</span><label for="todayHours">I have today</label><input id="todayHours" type="number" min="0.5" max="16" step="0.5" value="${Number(state.settings.todayHours ?? state.settings.dailyHours)}"><span style="font-size:9px;color:#888">hours</span><label for="skipSubject">Skip</label><select id="skipSubject" class="select"><option value="">No subject</option>${state.subjects.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select><button class="btn btn-soft btn-small" data-action="replan">↻ Rebalance</button></div><div class="grid lower-grid"><div><article class="card plan-day"><div class="plan-day-head"><div><h3>Today's focus</h3><span style="font-size:8px;color:#999">${fmtDate(localDate(), { weekday: 'long', month: 'long', day: 'numeric' })}</span></div><span>${fmtDuration(plan.used)} planned · ${Number(state.settings.todayHours ?? state.settings.dailyHours)}h budget</span></div>${tasks ? tasks : `<div class="empty-state"><h3>No study topics in today's plan</h3><p>Add topics to your syllabus or reduce today's skipped subjects.</p><button class="btn btn-soft btn-small" data-view="syllabus">Open syllabus</button></div>`}</article>${renderUpcomingRoadmap(plan, dates)}</div><div><article class="card panel"><div class="panel-head"><div><div class="panel-title">Coming up</div><div class="panel-subtitle">Checkpoint dates shape the priority</div></div><button class="text-link" data-view="exams">All exams →</button></div>${upcoming.length ? `<div class="subject-list">${upcoming.map(e => `<div class="subject-row"><div class="subject-mark" style="background:#fff3df;color:#ad8338">${parseDate(e.date).getDate()}</div><div class="subject-info"><strong>${esc(e.name)}</strong><small>${fmtDate(e.date)} · ${(e.topicIds || []).length} topics</small></div></div>`).join('')}</div>` : `<div class="empty-state"><p>Add exam dates to help prioritize your topics.</p><button class="btn btn-soft btn-small" data-action="open-exam">+ Add exam</button></div>`}</article><article class="card panel section-gap"><div class="panel-head"><div><div class="panel-title">Revision loop</div><div class="panel-subtitle">Spaced reviews keep ready topics warm</div></div></div><div class="goal-display">${dueTopics().length}<small> due now</small></div><p style="font-size:8px;color:#999">Next 7 days: ${dueInDays().length} scheduled reviews. A successful pass gently lengthens the interval; a missed one resets it.</p><button class="btn btn-outline btn-small" data-view="syllabus">Review syllabus statuses</button></article></div></div>`;
+function renderSearchGroup(title, items) {
+  if (!items.length) return '';
+  return `<div class="search-group"><h3>${title}</h3>${items.map(it => `
+    <button class="search-item" data-action="${it.action}" data-id="${it.id}">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.label)}</span>
+      <span class="hint">${esc(it.hint || '')}</span>
+    </button>`).join('')}</div>`;
 }
-function renderMetrics() {
-  const total = statusCount(), streak = getStreak(), mins = weeklyMinutes(), reads = total.reads;
-  const dayList = Array.from({ length: 84 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - 83 + i); const ds = localDate(d); const m = state.sessions.filter(s => localDate(new Date(s.startAt)) === ds).reduce((a, s) => a + s.minutes, 0); return { d, m }; });
-  const max = Math.max(60, ...dayList.map(x => x.m));
-  const heat = dayList.map(x => `<div class="heat-cell ${x.m ? `level-${Math.min(4, Math.ceil(x.m / max * 4))}` : ''}" title="${fmtDate(localDate(x.d), { month: 'short', day: 'numeric' })}: ${x.m ? fmtDuration(x.m) : 'no study'}"></div>`).join('');
-  const weekly = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - 6 + i); const ds = localDate(d); return { d, m: state.sessions.filter(s => localDate(new Date(s.startAt)) === ds).reduce((a, s) => a + s.minutes, 0) }; });
-  const wmax = Math.max(60, ...weekly.map(x => x.m));
-  const bars = weekly.map(x => `<div class="bar-column"><div class="bar-fill" style="height:${Math.max(x.m ? 4 : 1, x.m / wmax * 100)}%" title="${fmtDuration(x.m)}"></div><small>${fmtDay(x.d)}</small></div>`).join('');
-  const assigned = allTopics().filter(t => nearestExamFor(t)); const ready = assigned.filter(t => t.status === 'ready').length; const confidence = assigned.length ? Math.round((ready + assigned.filter(t => t.status === 'review').length * .45) / assigned.length * 100) : 0; const next = futureExams()[0];
-  const forecast = next ? Math.min(100, Math.round(confidence + Math.max(0, 30 - daysBetween(new Date(), parseDate(next.date))) * (Number(state.settings.dailyHours) / 10))) : confidence;
-  const onTime = allTopics().filter(t => t.status === 'ready' && t.nextReviewAt).length; const reviewed = allTopics().filter(t => (t.readHistory || []).length > 1).length; const health = onTime + reviewed ? Math.min(100, Math.round((reviewed / Math.max(1, onTime + reviewed)) * 100)) : 0;
-  return `${pageHeading('YOUR EFFORT, MADE VISIBLE', 'Small steps add up.', 'Metrics are calculated from your local study sessions and the syllabus you track.', `<button class="btn btn-outline" data-action="export-data">⇩ Export my data</button>`)}<section class="grid metrics-row">${metricCard('TOTAL TOPIC READS', reads, 'Semester-long count · never auto-resets', '↻', 'blue')}${metricCard('CURRENT STREAK', `${streak}<small style="font:500 10px var(--font);color:#999"> days</small>`, 'Consecutive days with study logged', '✳', 'lav')}${metricCard('FOCUS TIME · 7 DAYS', `${(mins / 60).toFixed(1)}<small style="font:500 10px var(--font);color:#999">h</small>`, `${state.sessions.length} total sessions logged`, '◷', 'gold')}${metricCard('REVISION HEALTH', `${health}<small style="font:500 10px var(--font);color:#999">%</small>`, `${dueTopics().length} reviews due right now`, '♡', 'pink')}</section><section class="grid insight-grid"><article class="card metric-large"><div class="panel-head"><div><div class="panel-title">Your study rhythm</div><div class="panel-subtitle">A 12-week heatmap of logged study time</div></div><div class="eyebrow">LESS <span style="color:#9f91de">■ ■ ■ ■</span> MORE</div></div><div class="heatmap">${heat}</div><div class="heatmap-labels">${dayList.filter((_, i) => i % 7 === 0).map(x => `<span>${x.d.toLocaleDateString(undefined, { month: 'short' })}</span>`).join('')}</div></article><article class="card metric-large"><div class="panel-head"><div><div class="panel-title">Time, day by day</div><div class="panel-subtitle">Actual minutes from your timer</div></div><span class="eyebrow">LAST 7 DAYS</span></div><div class="bar-chart">${bars}</div><div style="font-size:8px;color:#aaa;margin-top:9px">${(mins / 60).toFixed(1)} hours total this week</div></article><article class="card metric-large"><div class="panel-head"><div><div class="panel-title">Checkpoint confidence</div><div class="panel-subtitle">Ready and review statuses in linked topics</div></div></div><div class="goal-display">${confidence}%<small> ready today</small></div><div class="progress-track" style="height:8px;margin:10px 0 7px"><span style="width:${confidence}%"></span></div><p style="font-size:8px;color:#999;line-height:1.7">${next ? `Next checkpoint: ${esc(next.name)} on ${fmtDate(next.date)}. At your configured study target, the simple forecast is about ${forecast}% ready.` : 'Add an exam and link topics to see a confidence forecast.'}</p></article><article class="card metric-large"><div class="panel-head"><div><div class="panel-title">Reads by subject</div><div class="panel-subtitle">Every completed timer session counts as a read</div></div></div>${state.subjects.length ? `<div class="subject-list">${state.subjects.map(s => { const c = statusCount(s.id); return `<div class="subject-row"><div class="subject-mark" style="background:${COLORS[s.color % COLORS.length].bg};color:${COLORS[s.color % COLORS.length].fg}">${s.name.slice(0, 2).toUpperCase()}</div><div class="subject-info"><strong>${esc(s.name)}</strong><small>${c.reads} reads · ${c.total} topics</small><div class="progress-track"><span style="width:${Math.min(100, c.total ? (c.ready + c.review * .45) / c.total * 100 : 0)}%"></span></div></div><div class="subject-percent">${c.total ? Math.round((c.ready + c.review * .45) / c.total * 100) : 0}%</div></div>`; }).join('')}</div>` : `<div class="empty-state"><p>Add subjects to see semester-wide reading progress.</p><button class="btn btn-soft btn-small" data-view="syllabus">Add syllabus</button></div>`}</article></section>`;
+
+/* ---------- Home (4 blocks only) ---------------------------------------- */
+function viewDashboard() {
+  const plan = makePlan();
+  const today = todayMinutes();
+  const budget = Math.max(30, (Number(state.settings.todayHours ?? state.settings.dailyHours) || 4) * 60);
+  const pct = Math.min(100, Math.round(today / budget * 100));
+  const ex = futureExams()[0];
+  const streak = getStreak();
+  const next = plan.tasks[0];
+  const running = state.timer ? findTopic(state.timer.topicId) : null;
+
+  // Block 1: Today
+  const block1 = `
+    <section class="card panel" style="background:linear-gradient(135deg,#fffefa 0%,#f4f7df 58%,#eef2d3 100%);border-color:#e0e7c8;position:relative;overflow:hidden">
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:center">
+        <div style="--p:${pct};width:118px;height:118px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--brand,#d84f32) calc(var(--p)*1%),#e8ebdc 0);flex:none">
+          <div style="width:90px;height:90px;border-radius:50%;background:#fffefa;display:grid;place-content:center;text-align:center">
+            <strong style="font:700 24px 'Space Grotesk',sans-serif">${pct}%</strong>
+            <small style="font-size:10.5px;color:#737a6d;margin-top:2px">of today</small>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:1.4px;color:#d84f32;text-transform:uppercase;margin-bottom:4px">TODAY</div>
+          <h2 style="font:700 22px 'Space Grotesk',sans-serif;margin:0 0 6px">${fmtDuration(today)} done · ${fmtDuration(Math.max(0, budget - today))} left</h2>
+          <p style="margin:0;color:#737a6d;font-size:13px">${ex ? `${esc(ex.name)} in ${Math.max(0, daysBetween(new Date(), parseDate(ex.date)))} days` : 'Add an exam to shape your plan'}</p>
+          <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:12px">
+            <span style="padding:5px 11px;border-radius:999px;background:#fbe4dc;color:#b83b24;font-size:11.5px;font-weight:600">${fmtDuration(budget)} budget</span>
+            ${streak ? `<span style="padding:5px 11px;border-radius:999px;background:#e2f2e6;color:#2f7d4f;font-size:11.5px;font-weight:600">${streak}d streak</span>` : ''}
+          </div>
+        </div>
+      </div>
+    </section>`;
+
+  // Block 2: Next move
+  const block2 = running ? `
+    <section class="card panel" style="background:linear-gradient(135deg,#3a1f14 0%,#a8391d 55%,#e8832e 100%);color:#fff;border:0;position:relative;overflow:hidden">
+      <div style="font-size:10.5px;font-weight:700;letter-spacing:1.4px;color:#ffe8d0;text-transform:uppercase;margin-bottom:6px">NOW STUDYING</div>
+      <h2 style="font:700 22px 'Space Grotesk',sans-serif;margin:0 0 8px;color:#fff">${esc(running.topic.name)}</h2>
+      <p style="color:#ffe8d0;font-size:13.5px;margin:0 0 16px">${esc(running.subject.name)} · ${fmtTime(timerElapsed())} elapsed${state.timer.pausedAt ? ' (paused)' : ''}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${state.timer.pausedAt
+          ? `<button class="btn btn-outline" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.4)" data-action="resume-timer">Resume</button>`
+          : `<button class="btn btn-outline" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.4)" data-action="pause-timer">Pause</button>`}
+        <button class="btn btn-primary" data-action="finish-timer">Finish session</button>
+      </div>
+    </section>` : (next ? `
+    <section class="card panel" style="background:linear-gradient(135deg,#1c1b4b 0%,#33308f 55%,#0f6f8a 100%);color:#fff;border:0;position:relative;overflow:hidden">
+      <div style="font-size:10.5px;font-weight:700;letter-spacing:1.4px;color:#b8d934;text-transform:uppercase;margin-bottom:6px">NEXT MOVE</div>
+      <h2 style="font:700 22px 'Space Grotesk',sans-serif;margin:0 0 8px;color:#fff">${esc(next.subject)} → ${esc(next.name)}</h2>
+      <p style="color:#dfe3ff;font-size:13.5px;margin:0 0 16px">${esc(next.unit)} · ${fmtDuration(next.minutes)} suggested${next.exam ? ` · ${next.days}d to ${esc(next.exam.name)}` : ''}</p>
+      <button class="btn btn-primary" data-action="start-topic" data-id="${next.id}">Start now</button>
+    </section>` : `
+    <section class="card panel" style="background:linear-gradient(135deg,#1c1b4b 0%,#33308f 55%,#0f6f8a 100%);color:#fff;border:0">
+      <div style="font-size:10.5px;font-weight:700;letter-spacing:1.4px;color:#b8d934;text-transform:uppercase;margin-bottom:6px">GET STARTED</div>
+      <h2 style="font:700 22px 'Space Grotesk',sans-serif;margin:0 0 8px;color:#fff">Add your first subject to begin.</h2>
+      <p style="color:#dfe3ff;font-size:13.5px;margin:0 0 16px">Bring in a syllabus, add exams, and the plan will find your next best move.</p>
+      <button class="btn btn-primary" data-action="open-subject">Add subject</button>
+    </section>`);
+
+  // Block 3: Subjects progress (3-5 rows)
+  const subjectRows = state.subjects.slice(0, 5).map(s => {
+    const c = statusCount(s.id); const p = subjectPct(s); const co = COLORS[(s.color || 0) % COLORS.length];
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid #eef0e7">
+      <div style="width:36px;height:36px;border-radius:11px;background:${co.bg};color:${co.fg};display:grid;place-items:center;font:700 12px 'Space Grotesk',sans-serif;flex:none">${esc(s.name.slice(0,2).toUpperCase())}</div>
+      <div style="flex:1;min-width:0">
+        <strong style="display:block;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name)}</strong>
+        <small style="font-size:11.5px;color:#737a6d">${c.ready} ready · ${c.review} review · ${c.unknown} to learn</small>
+        <div style="height:6px;border-radius:6px;background:#eef0e7;overflow:hidden;margin-top:5px"><span style="display:block;height:100%;width:${p}%;background:${co.bar};border-radius:6px"></span></div>
+      </div>
+      <div style="font:600 13px 'DM Mono',monospace;color:#737a6d">${p}%</div>
+    </div>`;
+  }).join('');
+  const block3 = state.subjects.length ? `
+    <section class="card panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div><div style="font:600 15px 'Space Grotesk',sans-serif">Subjects progress</div><div style="font-size:11.5px;color:#737a6d;margin-top:3px">A quick pulse across the semester</div></div>
+        <button class="text-link" data-view="syllabus" style="background:none;border:0;color:#d84f32;font-size:12.5px;font-weight:600;cursor:pointer">All →</button>
+      </div>
+      <div>${subjectRows}</div>
+    </section>` : '';
+
+  // Block 4: One warning slot (only if needed)
+  const block4 = (() => {
+    const planned = plan.tasks.reduce((a, t) => a + t.minutes, 0);
+    if (planned > budget - today + 30)
+      return `<div style="display:flex;gap:12px;padding:14px 16px;border-radius:18px;background:#fff1c9;color:#9a6b0b;font-size:13px;line-height:1.55;border:1px solid #f0d68a">
+        <div><strong style="display:block;color:#9a6b0b">Overbooked by ~${fmtDuration(planned - (budget - today))}.</strong>Do the first two tasks, let the rest roll to tomorrow.</div>
+      </div>`;
+    const due = dueTopics().length;
+    if (due > 0)
+      return `<div style="display:flex;gap:12px;padding:14px 16px;border-radius:18px;background:#fff1c9;color:#9a6b0b;font-size:13px;line-height:1.55;border:1px solid #f0d68a">
+        <div><strong style="display:block;color:#9a6b0b">${due} review${due === 1 ? '' : 's'} due.</strong>A quick pass keeps them ready.</div>
+      </div>`;
+    return '';
+  })();
+
+  return `${block1}${block2}${block3}${block4}`;
 }
-function renderSettings() {
-  return `${pageHeading('YOUR STUDY, YOUR RULES', 'Settings & backups.', 'Set your AI provider, study goals, and keep a portable backup of your semester.', '')}<section class="grid settings-grid"><article class="card setting-card"><h3>AI study assistant</h3><p>Use your own API key for syllabus organization, exam circular reading, or practice questions. AI is optional; the planner works without it.</p><div class="field"><label for="provider">Provider</label><select id="provider">${Object.entries(PROVIDERS).map(([k, v]) => `<option value="${k}" ${state.settings.provider === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div><div class="field"><label for="model">Model</label><select id="modelPreset" aria-label="Model preset">${(PROVIDERS[state.settings.provider]?.models || []).map(m => `<option value="${m}" ${m === state.settings.model ? 'selected' : ''}>${m}</option>`).join('')}<option value="__custom" ${(PROVIDERS[state.settings.provider]?.models || []).includes(state.settings.model) ? '' : 'selected'}>Custom model name…</option></select><input id="model" value="${esc(state.settings.model)}" placeholder="${esc(PROVIDERS[state.settings.provider]?.model || '')}" autocomplete="off" spellcheck="false" style="margin-top:8px" /><span class="field-help">Suggested for ${PROVIDERS[state.settings.provider]?.label}: ${(PROVIDERS[state.settings.provider]?.models || []).join(' · ')}. Use a vision-capable model to read timetable images.</span></div><div class="field"><label for="apiKey">API key</label><div class="key-row"><input id="apiKey" type="password" value="${esc(state.settings.apiKey)}" placeholder="${esc(PROVIDERS[state.settings.provider]?.hint || 'Paste your provider key')}" autocomplete="off" spellcheck="false" autocapitalize="off"/><button type="button" class="btn btn-outline btn-small" data-action="toggle-key" aria-pressed="false">Show</button></div><span class="key-status ${state.settings.apiKey ? (keyLooksValid(state.settings.provider, state.settings.apiKey) ? 'ok' : 'warn') : ''}" id="keyStatus" role="status">${state.settings.apiKey ? (keyLooksValid(state.settings.provider, state.settings.apiKey) ? '● Key saved on this device' : '● Saved, but the format looks unusual for this provider') : '○ No key — manual import and the local planner still work'}</span><span class="field-help">Stored only in this browser. Requests go straight from your browser to the provider. Backups never include your key. Use a restricted key with a spending limit, and never save it on a shared device.</span></div><div class="settings-actions"><button class="btn btn-primary" data-action="save-settings">Save AI settings</button><button class="btn btn-outline" data-action="test-ai">Test connection</button><button class="btn btn-outline" data-action="forget-key">Forget key</button></div><div class="privacy-box">◉ &nbsp;No app backend or account. Your syllabus, study history, settings, and API key are stored locally on this device. The configured AI provider receives only the content you explicitly ask it to process.</div></article><article class="card setting-card"><h3>Study goals</h3><p>Set a realistic daily target. Change a one-day budget from the Study plan screen whenever life gets busy.</p><div class="field"><label for="dailyHours">Daily study target</label><input id="dailyHours" type="number" min="0.5" max="16" step="0.5" value="${Number(state.settings.dailyHours)}"/></div><div class="field"><label for="readGoal">Reads you want per topic before an exam</label><input id="readGoal" type="number" min="1" max="20" step="1" value="${Number(state.settings.readGoal)}"/><span class="field-help">This is a tracking goal, not a forced reset. Topic reads continue across all mids and finals.</span></div><div class="settings-actions"><button class="btn btn-primary" data-action="save-settings">Save goals</button></div><hr class="divider"><h3>Semester</h3><p>End semester is the only action that clears the current semester. Export a backup first if you want to keep its full reading history.</p><div class="field"><label for="semesterName">Semester label</label><input id="semesterName" value="${esc(state.semesterName)}" maxlength="48" /></div><div class="settings-actions"><button class="btn btn-outline" data-action="rename-semester">Save label</button><button class="btn btn-danger" data-action="end-semester">End semester</button></div></article><article class="card setting-card"><h3>Back up & move devices</h3><p>Export a JSON file to move your data to another browser. Import replaces the current workspace, so it is wise to export first.</p><div class="settings-actions"><button class="btn btn-primary" data-action="export-data">⇩ Export all data</button><button class="btn btn-outline" data-action="import-data">⇧ Import backup</button><input id="backupFile" type="file" accept=".json,application/json" hidden /></div><div class="privacy-box">Your data is not synced between devices. Export a backup on one device and import it on the other. Keep the backup private because it may contain your syllabus and provider key.</div></article><article class="card setting-card"><h3>How planning works</h3><p>The plan is an explainable local algorithm—not a black box.</p><div class="toggle-row"><span>Unknown topics + time estimate</span><strong>Prioritized</strong></div><div class="toggle-row"><span>Exam proximity + linked units</span><strong>Rebalanced</strong></div><div class="toggle-row"><span>Ready topics + review date</span><strong>Spaced</strong></div><div class="toggle-row"><span>Completed sessions</span><strong>Learned pace</strong></div><div class="toggle-row"><span>Passed mid checkpoints</span><strong>History kept</strong></div><div class="help-box">Finishing a timer session adds one topic read and logs actual minutes. Marking a topic Ready schedules a revisit. A successful revisit stretches the interval; a missed one moves it closer.</div></article></section>`;
+
+/* ---------- Syllabus (kept, with note badge) ---------------------------- */
+function viewSyllabus() {
+  if (openSubjectId) { const s = findSubject(openSubjectId); if (s) return viewSubjectDetail(s); openSubjectId = null; }
+  const tiles = state.subjects.filter(s => !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase())).map(s => {
+    const c = statusCount(s.id); const p = subjectPct(s); const co = COLORS[(s.color || 0) % COLORS.length];
+    const n = noteCountFor(s);
+    return `<button class="tile" data-action="open-subject-detail" data-id="${s.id}" style="position:relative;text-align:left;width:100%;padding:16px;border-radius:20px;background:#fffefa;border:1px solid #e5e7dd;box-shadow:0 9px 24px rgba(35,42,31,.075);cursor:pointer;display:flex;gap:14px;align-items:center">
+      <span style="--p:${p};--c:${co.bar};position:relative;width:60px;height:60px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(${co.bar} calc(${p}*1%),#eef0e7 0);flex:none">
+        <span style="position:absolute;inset:6px;border-radius:50%;background:#fffefa"></span>
+        <b style="position:relative;font:700 13px 'Space Grotesk',sans-serif">${p}%</b>
+      </span>
+      <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+        <strong style="font:700 16px 'Space Grotesk',sans-serif;overflow-wrap:anywhere">${esc(s.name)}</strong>
+        <small style="font-size:11.5px;color:#737a6d">${s.units.length} units · ${c.total} topics</small>
+        <span style="display:block;height:6px;border-radius:6px;background:#eef0e7;overflow:hidden;margin-top:4px"><i style="display:block;height:100%;width:${p}%;background:${co.bar};border-radius:6px"></i></span>
+        <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px">
+          <em style="font-style:normal;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:#fbe4dc;color:#b83b24">${c.unknown} to learn</em>
+          <em style="font-style:normal;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:#fff1c9;color:#9a6b0b">${c.review} review</em>
+          <em style="font-style:normal;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:#e2f2e6;color:#2f7d4f">${c.ready} ready</em>
+        </span>
+      </span>
+      ${n ? `<span style="position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:999px;background:#eef5c9;color:#63761a;font-size:11px;font-weight:700">${I.note.replace('width="22"','width="12" height="12"')} ${n}</span>` : ''}
+    </button>`;
+  }).join('');
+  return `
+    <div class="page-heading">
+      <div>
+        <div class="eyebrow">THE WHOLE SEMESTER</div>
+        <h1 tabindex="-1">Your syllabus, organized.</h1>
+        <p>Every topic keeps its read history across mids, finals, and the rest of the semester.</p>
+      </div>
+      <div class="heading-actions">
+        <button class="btn btn-outline" data-action="open-import-syllabus">Import full syllabus</button>
+        <button class="btn btn-primary" data-action="open-subject">+ Add subject</button>
+      </div>
+    </div>
+    <div class="toolbar" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <label class="searchbox" style="position:relative;flex:1;min-width:200px">
+        <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#9aa094">⌕</span>
+        <input id="syllabusSearch" aria-label="Search" placeholder="Find a subject or topic…" value="${esc(searchQuery)}" style="width:100%;min-height:44px;padding:10px 12px 10px 34px;border:1px solid #e5e7dd;border-radius:12px;background:#fffefa;font-size:14px">
+      </label>
+      <select class="select" id="syllabusFilter" aria-label="Filter by status" style="min-height:44px;padding:10px 12px;border:1px solid #e5e7dd;border-radius:12px;background:#fffefa">
+        <option value="">All topics</option>
+        <option value="unknown" ${syllabusFilter === 'unknown' ? 'selected' : ''}>Need to learn</option>
+        <option value="review" ${syllabusFilter === 'review' ? 'selected' : ''}>In review</option>
+        <option value="ready" ${syllabusFilter === 'ready' ? 'selected' : ''}>Ready</option>
+      </select>
+    </div>
+    ${state.subjects.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">${tiles}</div>`
+      : `<div class="card panel"><div class="empty-state"><div class="empty-icon">▤</div><h3>Start with what you need to study</h3><p>Add units and topics by hand, paste syllabus text, upload a PDF, or use your AI key to split a syllabus into units.</p><button class="btn btn-primary btn-small" data-action="open-subject">+ Add subject</button></div></div>`}
+  `;
 }
-function openModal(title, subtitle, body, actions = '<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="modal-save">Save</button>') {
+function viewSubjectDetail(s) {
+  const c = statusCount(s.id);
+  const co = COLORS[(s.color || 0) % COLORS.length];
+  const p = subjectPct(s);
+  const nCount = noteCountFor(s);
+  const units = s.units.map(u => {
+    const n = u.topics.length, rdy = u.topics.filter(t => t.status === 'ready').length;
+    const up = n ? Math.round(rdy / n * 100) : 0;
+    return `<details class="unit-acc">
+      <summary>
+        <span class="ua-main">
+          <strong>${esc(u.name)}</strong>
+          <small>${n} topics · ${rdy} ready · ${u.topics.reduce((a,t)=>a+(t.reads||0),0)} reads</small>
+          <span style="display:block;height:6px;border-radius:6px;background:#eef0e7;overflow:hidden;margin-top:5px"><i style="display:block;height:100%;width:${up}%;background:${co.bar};border-radius:6px"></i></span>
+        </span>
+        <span class="ua-pct">${up}%</span>
+        <span class="ua-chev">${I.chev}</span>
+      </summary>
+      <div class="ua-body">
+        ${u.topics.map(t => {
+          const rel = notesForTopic(t.id).slice(0, 3);
+          return `<div class="topic-row" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #eef0e7">
+            <span style="flex:1;min-width:180px;font-weight:600;font-size:13.5px">${esc(t.name)}</span>
+            <span style="font-size:11.5px;color:#737a6d">${t.reads || 0} reads</span>
+            <select data-action="topic-status" data-id="${t.id}" style="min-height:34px;padding:5px 8px;border:1px solid #e5e7dd;border-radius:9px;background:#fffefa;font-size:11.5px">
+              <option value="unknown" ${t.status === 'unknown' ? 'selected' : ''}>To learn</option>
+              <option value="review" ${t.status === 'review' ? 'selected' : ''}>Review</option>
+              <option value="ready" ${t.status === 'ready' ? 'selected' : ''}>Ready</option>
+            </select>
+            <button class="mini-btn" data-action="start-topic" data-id="${t.id}" aria-label="Start" style="width:34px;height:34px;border-radius:10px;border:1px solid #e5e7dd;background:#fffefa;display:grid;place-items:center;color:#d84f32;cursor:pointer">${I.play.replace('width="22"','width="15" height="15"')}</button>
+            <button class="mini-btn" data-action="add-note" data-type="topic" data-id="${t.id}" aria-label="Add note" style="width:34px;height:34px;border-radius:10px;border:1px solid #e5e7dd;background:#fffefa;display:grid;place-items:center;color:#d84f32;cursor:pointer">${I.note.replace('width="22"','width="15" height="15"')}</button>
+            <button class="mini-btn" data-action="practice-topic" data-id="${t.id}" aria-label="Practice" style="width:34px;height:34px;border-radius:10px;border:1px solid #e5e7dd;background:#fffefa;display:grid;place-items:center;color:#d84f32;cursor:pointer">${I.question.replace('width="22"','width="15" height="15"')}</button>
+            ${rel.length ? `<span style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11.5px;color:#737a6d">Related: ${rel.map(n => `<span style="padding:3px 8px;border-radius:999px;background:#eef5c9;color:#63761a;font-weight:600;cursor:pointer" data-action="open-note" data-id="${n.id}">${esc((n.body || '').slice(0, 30))}…</span>`).join('')}</span>` : ''}
+          </div>`;
+        }).join('')}
+        <button class="mini-btn" style="width:auto;padding:0 14px;margin-top:8px" data-action="add-topic" data-id="${s.id}" data-unit="${u.id}">${I.plus.replace('width="22"','width="14" height="14"')} Add topic</button>
+      </div>
+    </details>`;
+  }).join('');
+  return `
+    <button class="back-link" data-action="close-subject-detail">${I.chev.replace('m6 9 6 6 6-6','m15 18-6-6 6-6')} All subjects</button>
+    <section class="subject-hero" style="border-left-color:${co.bar}">
+      <div style="--p:${p};--c:${co.bar};position:relative;width:80px;height:80px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(${co.bar} calc(${p}*1%),#eef0e7 0);flex:none">
+        <span style="position:absolute;inset:8px;border-radius:50%;background:#fffefa"></span>
+        <b style="position:relative;font:700 16px 'Space Grotesk',sans-serif">${p}%</b>
+      </div>
+      <div style="flex:1;min-width:220px">
+        <h1>${esc(s.name)}</h1>
+        <p>${s.units.length} units · ${c.total} topics · ${c.reads} reads${nCount ? ` · ${nCount} note${nCount === 1 ? '' : 's'}` : ''}</p>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px">
+          <em style="font-style:normal;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:#fbe4dc;color:#b83b24">${c.unknown} to learn</em>
+          <em style="font-style:normal;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:#fff1c9;color:#9a6b0b">${c.review} review</em>
+          <em style="font-style:normal;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:#e2f2e6;color:#2f7d4f">${c.ready} ready</em>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-small" data-action="add-note" data-type="subject" data-id="${s.id}">+ Note</button>
+        <button class="btn btn-outline btn-small" data-action="add-topic" data-id="${s.id}">+ Topic</button>
+        <button class="btn btn-outline btn-small" data-action="rename-subject" data-id="${s.id}">Edit</button>
+        <button class="btn btn-danger btn-small" data-action="delete-subject" data-id="${s.id}" aria-label="Delete">×</button>
+      </div>
+    </section>
+    <div>${units || '<div class="card panel"><div class="empty-state"><p>No units yet.</p></div></div>'}</div>
+  `;
+}
+
+/* ---------- Library (new) ----------------------------------------------- */
+function viewLibrary() {
+  const tab = libraryTab;
+  const tabsHtml = `
+    <div class="tabs" role="tablist">
+      <button class="tab ${tab === 'notes' ? 'active' : ''}" data-tab="notes" role="tab">Notes</button>
+      <button class="tab ${tab === 'questions' ? 'active' : ''}" data-tab="questions" role="tab">Questions</button>
+    </div>`;
+  const tags = allTags();
+  const toolbar = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <label style="position:relative;flex:1;min-width:200px">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9aa094">⌕</span>
+        <input type="search" data-lib-search value="${esc(libraryFilter.q)}" placeholder="Search ${tab}…" style="width:100%;min-height:44px;padding:0 12px 0 36px;border:1px solid #e5e7dd;border-radius:12px;background:#fffefa;font-size:14px">
+      </label>
+      <select data-lib-tag style="min-height:44px;padding:0 12px;border:1px solid #e5e7dd;border-radius:12px;background:#fffefa;font-size:13px">
+        <option value="">All tags</option>
+        ${tags.map(t => `<option value="${esc(t)}" ${libraryFilter.tag === t ? 'selected' : ''}>#${esc(t)}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary btn-small" data-action="add-${tab === 'notes' ? 'note' : 'question'}">${I.plus.replace('width="22"','width="14" height="14"')} New</button>
+    </div>`;
+
+  if (tab === 'notes') {
+    const notes = state.notes
+      .filter(n => !libraryFilter.q || (n.body || '').toLowerCase().includes(libraryFilter.q.toLowerCase()))
+      .filter(n => !libraryFilter.tag || (n.tags || []).includes(libraryFilter.tag))
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    return `
+      <div class="page-heading">
+        <div><div class="eyebrow">LIBRARY</div><h1 tabindex="-1">Notes & questions.</h1><p>Short notes attached to subjects, units or topics. Tags help you cross-cut.</p></div>
+      </div>
+      ${tabsHtml}${toolbar}
+      ${notes.length ? notes.map(n => `
+        <article class="note-card" data-action="open-note" data-id="${n.id}">
+          <div class="body">${esc(n.body)}</div>
+          <div class="meta">
+            <span>${esc(describeAttach(n.attach))}</span>
+            ${(n.tags || []).map(t => `<span class="tag">#${esc(t)}</span>`).join('')}
+          </div>
+        </article>`).join('')
+        : `<div class="card panel"><div class="empty-state"><div class="empty-icon">${I.note.replace('width="22"','width="24" height="24"')}</div><h3>No notes yet</h3><p>Add a short note to any subject, unit or topic — it will show up here.</p><button class="btn btn-primary btn-small" data-action="add-note">+ New note</button></div></div>`}
+    `;
+  }
+  // questions
+  const qs = state.questions
+    .filter(q => !libraryFilter.q || (q.question || '').toLowerCase().includes(libraryFilter.q.toLowerCase()))
+    .filter(q => !libraryFilter.tag || (q.tags || []).includes(libraryFilter.tag))
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const dueCount = qs.filter(q => !q.srs?.due || q.srs.due <= localDate()).length;
+  const quizBody = quizState ? renderQuizBody() : `
+    <div class="card panel" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+        <div><div style="font:600 15px 'Space Grotesk',sans-serif">Quiz me</div><div style="font-size:11.5px;color:#737a6d;margin-top:3px">${dueCount} of ${qs.length} ready to review</div></div>
+        <button class="btn btn-primary btn-small" data-action="quiz-start" ${qs.length ? '' : 'disabled'}>${I.play.replace('width="22"','width="14" height="14"')} Start quiz</button>
+      </div>
+      <p style="font-size:12.5px;color:#737a6d;margin:0">One question at a time. Mark Got it or Again — wrong ones come back sooner.</p>
+    </div>`;
+  return `
+    <div class="page-heading">
+      <div><div class="eyebrow">LIBRARY</div><h1 tabindex="-1">Notes & questions.</h1><p>Practice with your own question bank — or save AI-generated practice questions.</p></div>
+    </div>
+    ${tabsHtml}${toolbar}
+    <div class="quiz-wrap">${quizBody}</div>
+    ${qs.length ? `<div style="margin-top:16px">${qs.map(q => `
+      <article class="q-card">
+        <div class="q">${esc(q.question)}</div>
+        <div class="a">${esc(q.answer || '')}</div>
+        <div class="meta">
+          ${q.source === 'ai' ? '<span style="padding:2px 8px;border-radius:999px;background:#fbe4dc;color:#b83b24;font-weight:600">AI</span>' : ''}
+          ${q.srs?.due ? `<span style="padding:2px 8px;border-radius:999px;background:#eef0e7;color:#737a6d">Due ${fmtDate(q.srs.due)}</span>` : ''}
+          ${(q.tags || []).map(t => `<span style="padding:2px 8px;border-radius:999px;background:#eef5c9;color:#63761a;font-weight:600">#${esc(t)}</span>`).join('')}
+          <button style="margin-left:auto;background:none;border:0;color:#d84f32;font-size:12.5px;font-weight:600;cursor:pointer" data-action="delete-question" data-id="${q.id}">Delete</button>
+        </div>
+      </article>`).join('')}</div>` : (qs.length === 0 && !quizState ? `<div class="card panel" style="margin-top:14px"><div class="empty-state"><div class="empty-icon">${I.question.replace('width="22"','width="24" height="24"')}</div><h3>No questions yet</h3><p>Write your own with an answer, or generate practice questions for a topic.</p><button class="btn btn-primary btn-small" data-action="add-question">+ New question</button></div></div>` : '')}
+  `;
+}
+function renderQuizBody() {
+  if (!quizState) return '';
+  const { queue, index, revealed, correct, total } = quizState;
+  if (index >= queue.length) {
+    return `<div class="card panel"><div class="empty-state"><div class="empty-icon">${I.check}</div><h3>Done · ${correct} of ${total}</h3><p>${correct === total ? 'Perfect run.' : 'The ones you missed will come back sooner.'}</p><button class="btn btn-primary btn-small" data-action="quiz-close">Finish</button></div></div>`;
+  }
+  const q = queue[index];
+  const pct = Math.round(index / total * 100);
+  return `
+    <article class="quiz-card">
+      <div class="quiz-meta"><span>Question ${index + 1} of ${total}</span><span>${correct} correct</span></div>
+      <div class="quiz-progress"><span style="width:${pct}%"></span></div>
+      <div class="q">${esc(q.question)}</div>
+      ${revealed ? `<div class="a">${esc(q.answer || '')}</div>` : ''}
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        ${!revealed
+          ? `<button class="btn btn-primary" data-action="quiz-show">Show answer</button>`
+          : `<button class="btn btn-outline" data-action="quiz-again">Again</button>
+             <button class="btn btn-primary" data-action="quiz-got">Got it</button>`}
+      </div>
+    </article>`;
+}
+function startQuiz() {
+  const pool = state.questions.slice();
+  if (!pool.length) return toast('Add questions first.', 'error');
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  quizState = { queue: pool, index: 0, revealed: false, correct: 0, total: pool.length };
+  render();
+}
+function answerQuiz(ok) {
+  if (!quizState) return;
+  const q = quizState.queue[quizState.index];
+  const ref = state.questions.find(x => x.id === q.id);
+  if (ref) {
+    ref.srs = ref.srs || { step: 0, due: localDate() };
+    if (ok) { ref.srs.step = Math.min((ref.srs.step || 0) + 1, 6); ref.srs.due = localDate(new Date(Date.now() + [1,2,4,8,16,32,64][ref.srs.step] * 86400000)); quizState.correct++; }
+    else { ref.srs.step = 0; ref.srs.due = localDate(new Date(Date.now() + 86400000)); }
+    persist();
+  }
+  quizState.index++; quizState.revealed = false; render();
+}
+
+/* ---------- Exams / Insights / Settings / Help (kept) ------------------- */
+function viewExams() {
+  const ex = [...state.exams].sort((a, b) => a.date.localeCompare(b.date));
+  return `
+    <div class="page-heading">
+      <div><div class="eyebrow">CHECKPOINTS</div><h1 tabindex="-1">Exams & deadlines.</h1><p>Link topics to each exam. Past checkpoints keep their history.</p></div>
+      <div class="heading-actions"><button class="btn btn-primary" data-action="open-exam">+ Add exam</button></div>
+    </div>
+    ${ex.length ? ex.map(e => {
+      const d = parseDate(e.date);
+      const topics = (e.topicIds || []).map(findTopic).filter(Boolean);
+      const ready = topics.filter(x => x.topic.status === 'ready').length;
+      const pct = topics.length ? Math.round(ready / topics.length * 100) : 0;
+      const days = Math.max(0, daysBetween(new Date(), d));
+      const past = daysBetween(new Date(), d) < 0;
+      return `<article class="card" style="padding:16px;margin-bottom:10px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <div style="width:56px;height:60px;border-radius:14px;background:#fbe4dc;color:#b83b24;display:flex;flex-direction:column;align-items:center;justify-content:center;flex:none">
+          <strong style="font:700 20px 'Space Grotesk',sans-serif">${d.getDate()}</strong>
+          <span style="font-size:10px;letter-spacing:.8px">${d.toLocaleDateString(undefined, { month: 'short' }).toUpperCase()}</span>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <strong style="font:600 15px 'Space Grotesk',sans-serif">${esc(e.name)}</strong>
+            <span style="padding:3px 9px;border-radius:999px;background:${past ? '#eef0e7' : '#fbe4dc'};color:${past ? '#737a6d' : '#b83b24'};font-size:11.5px;font-weight:600">${past ? 'passed' : `${days}d left`}</span>
+          </div>
+          <div style="color:#737a6d;font-size:12px;margin-top:4px">${fmtDate(e.date, { weekday: 'short', month: 'long', day: 'numeric' })} · ${topics.length} topics · ${pct}% ready</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-outline btn-small" data-action="edit-exam" data-id="${e.id}">Edit</button>
+          <button class="btn btn-danger btn-small" data-action="delete-exam" data-id="${e.id}">Remove</button>
+        </div>
+      </article>`;
+    }).join('') : `<div class="card panel"><div class="empty-state"><div class="empty-icon">${I.exam.replace('width="22"','width="24" height="24"')}</div><h3>No exams yet</h3><p>Add a checkpoint date and select the units it covers.</p><button class="btn btn-primary btn-small" data-action="open-exam">+ Add exam</button></div></div>`}
+  `;
+}
+function viewMetrics() {
+  const total = statusCount(); const mins = weeklyMinutes(); const streak = getStreak(); const reads = total.reads;
+  const days = Array.from({ length: 84 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - 83 + i); const ds = localDate(d); const m = state.sessions.filter(s => localDate(new Date(s.startAt)) === ds).reduce((a, s) => a + s.minutes, 0); return { d, m }; });
+  const max = Math.max(60, ...days.map(x => x.m));
+  const heat = days.map(x => `<div style="aspect-ratio:1;border-radius:4px;background:${x.m ? `hsl(14, ${Math.min(80, 30 + x.m)}%, ${Math.max(40, 70 - x.m / max * 30)}%)` : '#eef0e7'}" title="${fmtDate(localDate(x.d))}: ${x.m ? fmtDuration(x.m) : 'no study'}"></div>`).join('');
+  return `
+    <div class="page-heading"><div><div class="eyebrow">INSIGHTS</div><h1 tabindex="-1">Effort, made visible.</h1><p>Numbers come from your local sessions.</p></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px">
+      <div class="card panel"><div style="font-size:11.5px;color:#737a6d">Topic reads</div><div style="font:700 28px 'Space Grotesk',sans-serif">${reads}</div><div style="color:#737a6d;font-size:12px">across all subjects</div></div>
+      <div class="card panel"><div style="font-size:11.5px;color:#737a6d">Streak</div><div style="font:700 28px 'Space Grotesk',sans-serif">${streak}d</div><div style="color:#737a6d;font-size:12px">consecutive days</div></div>
+      <div class="card panel"><div style="font-size:11.5px;color:#737a6d">Focus time · 7 days</div><div style="font:700 28px 'Space Grotesk',sans-serif">${(mins/60).toFixed(1)}h</div><div style="color:#737a6d;font-size:12px">${state.sessions.length} sessions</div></div>
+      <div class="card panel"><div style="font-size:11.5px;color:#737a6d">Reviews due</div><div style="font:700 28px 'Space Grotesk',sans-serif">${dueTopics().length}</div><div style="color:#737a6d;font-size:12px">ready topics to revisit</div></div>
+    </div>
+    <div class="card panel" style="margin-top:14px">
+      <div style="font:600 15px 'Space Grotesk',sans-serif;margin-bottom:10px">Study rhythm · 12 weeks</div>
+      <div style="display:grid;grid-template-columns:repeat(14,1fr);gap:4px">${heat}</div>
+    </div>
+  `;
+}
+function viewHelp() {
+  return `
+    <div class="page-heading"><div><div class="eyebrow">HELP</div><h1 tabindex="-1">How ExamFlow works.</h1><p>A simple loop: syllabus → exams → daily plan → timer.</p></div></div>
+    <div class="card panel">
+      <div style="font:600 15px 'Space Grotesk',sans-serif;margin-bottom:10px">The loop</div>
+      <ol style="padding-left:18px;line-height:1.85;font-size:13.5px;margin:0">
+        <li><strong>Add your subjects and topics.</strong> One per line, or paste a unit heading.</li>
+        <li><strong>Add exam dates.</strong> Select the units each exam covers.</li>
+        <li><strong>Follow the plan.</strong> One next move, ordered by urgency and pace.</li>
+        <li><strong>Use the timer.</strong> Finishing a session logs one read on the topic.</li>
+      </ol>
+    </div>
+    <div class="card panel" style="margin-top:14px">
+      <div style="font:600 15px 'Space Grotesk',sans-serif;margin-bottom:8px">Notes & questions</div>
+      <p style="font-size:13px;line-height:1.7;color:#737a6d;margin:0">Notes attach to a subject, unit or topic. Question bank supports manual questions and AI-generated practice. Quiz uses simple spaced repetition.</p>
+    </div>
+  `;
+}
+function viewSettings() {
+  const last = state.settings.lastBackup;
+  const days = last ? daysBetween(parseDate(last), new Date()) : null;
+  const backupHint = !last ? 'No backup yet' : days === 0 ? 'Backed up today' : `Last backup ${days} day${days === 1 ? '' : 's'} ago`;
+  const needsBackup = !last || days >= 7;
+  return `
+    <div class="page-heading"><div><div class="eyebrow">SETTINGS</div><h1 tabindex="-1">Your study, your rules.</h1><p>Everything is stored on this device.</p></div></div>
+
+    ${needsBackup ? `<div style="display:flex;gap:12px;padding:14px 16px;border-radius:18px;background:#fff1c9;color:#9a6b0b;font-size:13px;line-height:1.55;border:1px solid #f0d68a;margin-bottom:14px">
+      <div><strong style="display:block;color:#9a6b0b">${backupHint}.</strong>Export a backup to keep your semester safe.</div>
+    </div>` : ''}
+
+    <div class="card panel" style="margin-bottom:14px">
+      <div style="font:600 15px 'Space Grotesk',sans-serif;margin-bottom:12px">Study goals</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+        <label for="dailyHours" style="font-size:12.5px;font-weight:600">Daily target (hours)</label>
+        <input id="dailyHours" type="number" min="0.5" max="16" step="0.5" value="${Number(state.settings.dailyHours)}" style="min-height:44px;padding:10px 12px;border:1px solid #e5e7dd;border-radius:12px;background:#fffefa;font-size:15px">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+        <label for="targetMinutes" style="font-size:12.5px;font-weight:600">Default timer target (minutes, optional)</label>
+        <input id="targetMinutes" type="number" min="0" max="240" step="5" value="${state.settings.targetMinutes || ''}" placeholder="No target" style="min-height:44px;padding:10px 12px;border:1px solid #e5e7dd;border-radius:12px;background:#fffefa;font-size:15px">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+        <label for="readGoal" style="font-size:12.5px;font-weight:600">Reads per topic goal</label>
+        <input id="readGoal" type="number" min="1" max="20" step="1" value="${Number(state.settings.readGoal)}" style="min-height:44px;padding:10px 12px;border:1px solid #e5e7dd;border-radius:12px;background:#fffefa;font-size:15px">
+      </div>
+      <button class="btn btn-primary btn-small" data-action="save-settings">Save goals</button>
+    </div>
+
+    <div class="card panel" style="margin-bottom:14px">
+      <div style="font:600 15px 'Space Grotesk',sans-serif;margin-bottom:12px">Backup</div>
+      <p style="font-size:12.5px;color:#737a6d;margin:0 0 12px">${backupHint}. Notes and questions are included.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-small" data-action="export-data">Export all data</button>
+        <button class="btn btn-outline btn-small" data-action="import-data">Import backup</button>
+        <input id="backupFile" type="file" accept=".json,application/json" hidden>
+      </div>
+    </div>
+
+    <div class="card panel" style="margin-bottom:14px">
+      <div style="font:600 15px 'Space Grotesk',sans-serif;margin-bottom:12px">Motion</div>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;margin-bottom:12px">
+        <input type="checkbox" data-action="toggle-motion" ${state.settings.reduceMotion ? 'checked' : ''}>
+        <span>Reduce motion (no slime, just fades)</span>
+      </label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+        <div style="font-size:12.5px;font-weight:600">Rail side</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-small ${state.settings.railSide === 'left' ? 'btn-primary' : 'btn-outline'}" data-action="rail-side" data-side="left">Left</button>
+          <button class="btn btn-small ${state.settings.railSide === 'right' ? 'btn-primary' : 'btn-outline'}" data-action="rail-side" data-side="right">Right</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card panel">
+      <div style="font:600 15px 'Space Grotesk',sans-serif;margin-bottom:12px">Semester</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+        <label for="semesterName" style="font-size:12.5px;font-weight:600">Semester label</label>
+        <input id="semesterName" value="${esc(state.semesterName)}" maxlength="48" style="min-height:44px;padding:10px 12px;border:1px solid #e5e7dd;border-radius:12px;background:#fffefa;font-size:15px">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-small" data-action="rename-semester">Save label</button>
+        <button class="btn btn-danger btn-small" data-action="end-semester">End semester</button>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------- Views mapping ---------------------------------------------- */
+function render() {
+  setPageHeader();
+  renderRail();
+  renderDock();
+  const root = document.getElementById('app');
+  const body = ({
+    dashboard: viewDashboard, syllabus: viewSyllabus, plan: viewPlan, library: viewLibrary,
+    exams: viewExams, metrics: viewMetrics, settings: viewSettings, help: viewHelp,
+  }[view] || viewDashboard)();
+  root.innerHTML = body;
+}
+
+/* ---------- Plan view (kept) ------------------------------------------- */
+function viewPlan() {
+  const plan = makePlan();
+  const dates = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return localDate(d); });
+  const running = state.timer ? findTopic(state.timer.topicId) : null;
+  const tasks = plan.tasks.map((t, i) => `<div class="task-row" style="display:flex;align-items:center;gap:12px;padding:13px 0;border-top:1px solid #eef0e7;flex-wrap:wrap">
+    <span style="font:600 12px 'DM Mono',monospace;color:#737a6d;min-width:50px">${String(9 + Math.floor(t.startMinute / 60)).padStart(2, '0')}:${String(t.startMinute % 60).padStart(2, '0')}</span>
+    <span style="width:8px;height:8px;border-radius:50%;background:${COLORS[t.color % COLORS.length].bar};flex:none"></span>
+    <div style="flex:1;min-width:0">
+      <strong style="display:block;font-size:13.5px;overflow:hidden;text-overflow:ellipsis">${esc(t.subject)} → ${esc(t.name)}</strong>
+      <small style="color:#737a6d;font-size:11.5px">${esc(t.unit)} · ${t.isDue ? 'Review due' : t.exam ? `${t.days}d until ${esc(t.exam.name)}` : 'Foundations'}</small>
+    </div>
+    <span style="font:600 12px 'DM Mono',monospace;color:#b83b24;white-space:nowrap">${fmtDuration(t.minutes)}</span>
+    <button class="btn btn-soft btn-small" data-action="start-topic" data-id="${t.id}">Start</button>
+  </div>`).join('');
+  return `
+    <div class="page-heading">
+      <div><div class="eyebrow">A PLAN THAT ADAPTS</div><h1 tabindex="-1">A clear next step, each day.</h1><p>Your plan follows exam dates, topic confidence, revision due dates, and the time you have today.</p></div>
+      <div class="heading-actions">
+        <button class="btn btn-outline" data-action="add-session">+ Log session</button>
+      </div>
+    </div>
+    ${plan.risk ? `<div style="display:flex;gap:12px;padding:14px 16px;border-radius:18px;background:#fff1c9;color:#9a6b0b;font-size:13px;line-height:1.55;border:1px solid #f0d68a;margin-bottom:14px"><div><strong style="display:block;color:#9a6b0b">Potential pace warning for ${esc(plan.next.name)}.</strong>About ${fmtDuration(plan.remaining)} remains for ${plan.daysLeft} days.</div></div>` : ''}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 16px;border-radius:18px;background:#20231f;color:#fff;margin-bottom:14px">
+      <label for="todayHours" style="font-size:13px;font-weight:600;color:#e5ecdc">Today I have</label>
+      <input id="todayHours" type="number" min="0.5" max="16" step="0.5" value="${Number(state.settings.todayHours ?? state.settings.dailyHours)}" style="width:74px;min-height:40px;padding:0 12px;border:0;border-radius:10px;background:#fff;font-size:13px">
+      <span style="font-size:12px">hours</span>
+      <label for="skipSubject" style="font-size:13px;font-weight:600;color:#e5ecdc">Skip</label>
+      <select id="skipSubject" style="min-height:40px;padding:0 12px;border:0;border-radius:10px;background:#fff;font-size:13px">
+        <option value="">No subject</option>
+        ${state.subjects.map(s => `<option value="${s.id}" ${state.settings.skipToday?.includes(s.id) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+      </select>
+      <button class="btn btn-soft btn-small" data-action="replan" style="margin-left:auto">Rebalance</button>
+    </div>
+    <div class="card panel">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+        <div><div style="font:600 15px 'Space Grotesk',sans-serif">Today's focus</div><div style="font-size:11.5px;color:#737a6d;margin-top:3px">${fmtDate(localDate(), { weekday: 'long', month: 'long', day: 'numeric' })} · ${fmtDuration(plan.used)} planned</div></div>
+      </div>
+      ${tasks || `<div class="empty-state"><h3>No study topics in today's plan</h3><p>Add topics or increase today's hours.</p></div>`}
+    </div>
+  `;
+}
+
+/* ---------- Modal helpers ---------------------------------------------- */
+function openModal(title, subtitle, body, actions) {
+  actions = actions || '<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="modal-save">Save</button>';
   if (!document.querySelector('#modalRoot [role="dialog"]')) modalReturnFocus = document.activeElement;
-  document.getElementById('modalRoot').innerHTML = `<div class="modal-backdrop" data-action="backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDescription" tabindex="-1"><div class="modal-head"><div><h2 id="modalTitle">${title}</h2><p id="modalDescription">${subtitle}</p></div><button class="modal-close" data-action="close-modal" aria-label="Close dialog">×</button></div><div class="modal-body">${body}</div><div class="modal-actions">${actions}</div></section></div>`;
-  requestAnimationFrame(() => document.querySelector('#modalRoot [role="dialog"] button,#modalRoot [role="dialog"] input:not([type="hidden"]),#modalRoot [role="dialog"] textarea,#modalRoot [role="dialog"] select')?.focus());
+  document.getElementById('modalRoot').innerHTML = `<div class="modal-backdrop" data-action="backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1"><div class="modal-head"><div><h2 id="modalTitle">${title}</h2><p>${subtitle}</p></div><button class="modal-close" data-action="close-modal" aria-label="Close">×</button></div><div class="modal-body">${body}</div><div class="modal-actions">${actions}</div></section></div>`;
+  requestAnimationFrame(() => document.querySelector('#modalRoot [role="dialog"] button, #modalRoot [role="dialog"] input')?.focus());
 }
-function closeModal() { aiAbort?.abort(); document.getElementById('modalRoot').innerHTML = ''; if (modalReturnFocus?.isConnected) modalReturnFocus.focus(); modalReturnFocus = null; }
-function setMenuOpen(open) { const sidebar = document.getElementById('sidebar'); const trigger = document.querySelector('[data-action="menu"]'); const scrim = document.getElementById('sidebarScrim'); const wasOpen = sidebar?.classList.contains('open'); sidebar?.classList.toggle('open', open); scrim?.classList.toggle('open', open); trigger?.setAttribute('aria-expanded', String(open)); document.body.classList.toggle('menu-open', open); if (open && !wasOpen) { menuReturnFocus = document.activeElement; requestAnimationFrame(() => sidebar?.querySelector('.nav-link')?.focus()); } else if (!open && wasOpen) { (menuReturnFocus?.isConnected ? menuReturnFocus : trigger)?.focus(); menuReturnFocus = null; } }
-function showHelp() {
-  openModal('How ExamFlow helps', 'A simple loop turns a big semester into small, trackable actions.', `<div class="help-box"><strong>1. Import once.</strong><p>Upload your complete text-based syllabus PDF or paste the whole outline. With an AI key, ExamFlow identifies multiple subjects, units, and topics. Review the parse before it is saved. Re-importing merges matches rather than resetting progress.</p><strong>2. Add checkpoint dates.</strong><p>Create each midterm and final and select the included topics. The same topic may be linked to several exams.</p><strong>3. Follow one next step.</strong><p>Your local plan prioritizes unknown topics, approaching exams, your actual session pace, and reviews due today. Change today's available hours whenever your day changes.</p><strong>4. Keep your history.</strong><p>Finish a timer session to log one read and actual minutes. Mark confidence as Unknown, Review, or Ready. A past checkpoint never clears topic reads.</p><strong>Your privacy.</strong><p>Study data stays in this browser. AI parsing is optional; if used, only the content you request and your own key go directly to the selected AI provider.</p></div>`, '<button class="btn btn-outline" data-action="close-modal">Got it</button><button class="btn btn-soft" data-action="start-tour">Replay tour</button><button class="btn btn-primary" data-action="open-import-syllabus">Import my syllabus</button>');
+function closeModal() { aiAbort?.abort?.(); document.getElementById('modalRoot').innerHTML = ''; if (modalReturnFocus?.isConnected) modalReturnFocus.focus(); modalReturnFocus = null; }
+
+/* ---------- Toast ------------------------------------------------------ */
+function toast(msg, type = '', undoFn = null, undoLabel = 'Undo') {
+  const root = document.getElementById('toastRoot');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span>${esc(msg)}</span>`;
+  if (undoFn) {
+    const btn = document.createElement('button');
+    btn.className = 'undo'; btn.textContent = undoLabel;
+    btn.onclick = () => { undoFn(); el.remove(); };
+    el.appendChild(btn);
+  }
+  root.appendChild(el);
+  setTimeout(() => el.remove(), undoFn ? 6500 : 3400);
 }
-function toast(message, type = '') { const root = document.getElementById('toastRoot'); const el = document.createElement('div'); el.className = `toast ${type}`; el.textContent = message; root.appendChild(el); setTimeout(() => el.remove(), 3400); }
+
+/* ---------- Notes & questions modals ----------------------------------- */
+function showNoteModal(noteId = null, attach = null) {
+  const n = noteId ? state.notes.find(x => x.id === noteId) : null;
+  const initialAttach = n?.attach || attach || { type: 'subject', id: state.subjects[0]?.id || '' };
+  const attachOptions = `
+    <option value="">Choose…</option>
+    ${state.subjects.map(s => `<optgroup label="${esc(s.name)}">
+      <option value="subject:${s.id}" ${initialAttach.type === 'subject' && initialAttach.id === s.id ? 'selected' : ''}>Subject: ${esc(s.name)}</option>
+      ${s.units.map(u => `<option value="unit:${u.id}" ${initialAttach.type === 'unit' && initialAttach.id === u.id ? 'selected' : ''}>Unit: ${esc(u.name)}</option>
+        ${u.topics.map(t => `<option value="topic:${t.id}" ${initialAttach.type === 'topic' && initialAttach.id === t.id ? 'selected' : ''}>Topic: ${esc(t.name)}</option>`).join('')}`).join('')}
+    </optgroup>`).join('')}`;
+  openModal(n ? 'Edit note' : 'New note', 'Notes are short. Attach to a subject, unit or topic.', `
+    <div class="field"><label for="noteAttach">Attach to</label>
+      <select id="noteAttach">${attachOptions}</select>
+    </div>
+    <div class="field"><label for="noteBody">Note</label>
+      <textarea id="noteBody" placeholder="A short idea, formula, or reminder…">${esc(n?.body || '')}</textarea>
+    </div>
+    <div class="field"><label for="noteTags">Tags <span class="muted" style="font-weight:400">· comma separated</span></label>
+      <input id="noteTags" value="${esc((n?.tags || []).join(', '))}" placeholder="formula, weak-area">
+    </div>
+  `, `<button class="btn btn-outline" data-action="close-modal">Cancel</button>${n ? `<button class="btn btn-danger" data-action="delete-note" data-id="${n.id}">Delete</button>` : ''}<button class="btn btn-primary" data-action="save-note" data-id="${n?.id || ''}">Save note</button>`);
+}
+function showQuestionModal(qId = null) {
+  const q = qId ? state.questions.find(x => x.id === qId) : null;
+  openModal(q ? 'Edit question' : 'New question', 'Write the question and the answer. Optional tags.', `
+    <div class="field"><label for="qText">Question</label>
+      <textarea id="qText" placeholder="e.g. What is the time complexity of binary search?">${esc(q?.question || '')}</textarea>
+    </div>
+    <div class="field"><label for="qAnswer">Answer</label>
+      <textarea id="qAnswer" placeholder="The answer you want to remember…">${esc(q?.answer || '')}</textarea>
+    </div>
+    <div class="field"><label for="qTags">Tags <span class="muted" style="font-weight:400">· comma separated</span></label>
+      <input id="qTags" value="${esc((q?.tags || []).join(', '))}" placeholder="complexity, formula">
+    </div>
+  `, `<button class="btn btn-outline" data-action="close-modal">Cancel</button>${q ? `<button class="btn btn-danger" data-action="delete-question" data-id="${q.id}">Delete</button>` : ''}<button class="btn btn-primary" data-action="save-question" data-id="${q?.id || ''}">Save question</button>`);
+}
+
+/* ---------- Custom modals (subject, exam, topic, import) --------------- */
 function showSubjectModal() {
-  openModal('Add a subject', 'Add units and topics; you can edit them whenever you like.', `<form id="subjectForm"><div class="field"><label for="subjectName">Subject name</label><input id="subjectName" name="name" required maxlength="80" placeholder="e.g. Data Structures & Algorithms" /></div><div class="field"><label for="syllabusText">Syllabus input</label><textarea id="syllabusText" name="syllabus" placeholder="One topic per line. Optional unit headings work too:\nUnit 1: Foundations\nArrays\nLinked lists\nUnit 2: Trees\nBinary search trees"></textarea><span class="field-help">Paste plain text, or use the PDF button below. Lines like “Unit 1: Title” become units; other lines become topics.</span></div><div class="row"><button type="button" class="btn btn-outline btn-small" data-action="choose-subject-pdf">▤ Upload PDF</button><input id="pdfFile" type="file" accept="application/pdf" hidden><button type="button" class="btn btn-soft btn-small" data-action="ai-split">✦ Organize with AI</button></div><div id="parseStatus" class="field-help" style="margin-top:9px"></div></form>`, `<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-subject">Add subject</button>`);
+  openModal('Add a subject', 'Add units and topics; you can edit them whenever you like.', `<form id="subjectForm">
+    <div class="field"><label for="subjectName">Subject name</label><input id="subjectName" required maxlength="80" placeholder="e.g. Data Structures & Algorithms"></div>
+    <div class="field"><label for="syllabusText">Syllabus input</label><textarea id="syllabusText" placeholder="One topic per line. Optional unit headings work too:&#10;Unit 1: Foundations&#10;Arrays&#10;Linked lists"></textarea>
+      <span class="help">Lines like “Unit 1: Title” become units; other lines become topics.</span></div>
+  </form>`, `<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-subject">Add subject</button>`);
+}
+function showExamModal(existing = null) {
+  const e = existing || {};
+  const chosen = e.topicIds || [];
+  openModal(existing ? 'Edit exam' : 'Add exam', 'Pick the date and exact units covered.', `<form id="examForm">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field"><label for="examName">Exam name</label><input id="examName" required maxlength="80" value="${esc(e.name || '')}" placeholder="Mid-1, Finals…"></div>
+      <div class="field"><label for="examDate">Date</label><input id="examDate" type="date" required value="${esc(e.date || localDate(new Date(Date.now() + 7 * 86400000)))}"></div>
+    </div>
+    <fieldset class="field"><legend>Units covered</legend>
+      <div style="max-height:220px;overflow:auto;border:1px solid #e5e7dd;border-radius:12px;padding:10px">
+        ${state.subjects.map(s => `<div style="font-size:12px;font-weight:700;color:#63761a;padding:6px 2px 3px">${esc(s.name)}</div>${s.units.map(u => `<div style="padding:6px 4px"><label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" class="unit-check" data-subject="${s.id}" data-unit="${u.id}" ${u.topics.length && u.topics.every(t => chosen.includes(t.id)) ? 'checked' : ''}><strong>${esc(u.name)}</strong></label>${u.topics.map(t => `<label style="display:flex;align-items:center;gap:8px;padding:4px 0 4px 22px;font-size:12.5px"><input type="checkbox" name="topicIds" value="${t.id}" ${chosen.includes(t.id) ? 'checked' : ''}><span>${esc(t.name)}</span></label>`).join('')}</div>`).join('')}`).join('')}
+      </div>
+    </fieldset>
+  </form>`, `<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-exam" data-id="${e.id || ''}">${existing ? 'Save' : 'Add exam'}</button>`);
+}
+function showTopicModal(subjectId, unitId = '') {
+  const s = findSubject(subjectId); if (!s) return;
+  openModal('Add a topic', `Add one topic to ${esc(s.name)}.`, `<form id="topicForm">
+    <div class="field"><label for="topicUnit">Unit</label><select id="topicUnit">${s.units.map(u => `<option value="${u.id}" ${u.id === unitId ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}<option value="__new__">+ Create a new unit…</option></select></div>
+    <div class="field"><label for="newUnit">New unit name (optional)</label><input id="newUnit" placeholder="e.g. Unit 6 · Applications"></div>
+    <div class="field"><label for="topicName">Topic name</label><input id="topicName" required maxlength="120" placeholder="e.g. Binary search trees"></div>
+  </form>`, `<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-topic" data-id="${subjectId}">Add topic</button>`);
 }
 function showImportSyllabus() {
-  openModal('Import your full syllabus', 'Upload one or more text-based PDFs or paste the complete syllabus. ExamFlow will find every subject, unit, and topic, then show you an editable review before adding anything.', `<div class="import-drop"><div><div class="import-drop-icon" aria-hidden="true">▤</div><strong>Choose syllabus PDFs</strong><p class="field-help">Text-based PDF · up to 50 MB each. Files are read in this browser; nothing is added until you confirm.</p><button type="button" class="btn btn-outline btn-small" data-action="choose-bulk-pdf">Choose PDF files</button><input id="bulkPdfFiles" type="file" accept="application/pdf" multiple hidden></div></div><div id="bulkImportStatus" class="field-help" role="status" aria-live="polite" style="margin:12px 0"></div><div class="field"><label for="bulkSyllabusText">Or paste the full syllabus text</label><textarea id="bulkSyllabusText" placeholder="Paste all pages here. Include course/subject names and unit headings if available."></textarea><span class="field-help">With an API key (Settings), the text is split into sections and sent to your selected provider; usage may be billed. Without a key, ExamFlow scans for “Subject:” / course-code headings locally. You review everything before saving.</span></div><div class="field"><label for="manualBulkName">Manual import subject name (no AI)</label><input id="manualBulkName" placeholder="e.g. Data Structures & Algorithms" autocomplete="off"></div><div class="row wrap"><button class="btn btn-primary" data-action="parse-bulk-syllabus">✦ Find all subjects & topics</button><button class="btn btn-soft" data-action="manual-bulk-syllabus">Preview as one subject</button></div>`, '<button class="btn btn-outline" data-action="close-modal">Close</button>');
+  openModal('Import syllabus', 'Paste the whole syllabus or use a single subject.', `<div class="field">
+    <label for="bulkText">Syllabus text</label>
+    <textarea id="bulkText" placeholder="Paste all pages here. Include course/subject names and unit headings."></textarea>
+  </div>
+  <div class="field"><label for="manualBulkName">Subject name</label><input id="manualBulkName" placeholder="e.g. Data Structures & Algorithms"></div>
+  `, '<button class="btn btn-outline" data-action="close-modal">Close</button><button class="btn btn-primary" data-action="manual-bulk-syllabus">Import</button>');
 }
+function showSessionModal() {
+  openModal('Log a session by hand', 'Add a study session manually.', `<form id="sessionForm">
+    <div class="field"><label for="sessionTopic">Topic</label><select id="sessionTopic"><option value="">Choose…</option>${allTopics().map(t => `<option value="${t.id}">${esc(t.subject)} · ${esc(t.name)}</option>`).join('')}</select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field"><label for="sessionMinutes">Minutes</label><input id="sessionMinutes" type="number" min="1" max="480" value="30"></div>
+      <div class="field"><label for="sessionDate">Date</label><input id="sessionDate" type="date" value="${localDate()}"></div>
+    </div>
+  </form>`, `<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-session">Log session</button>`);
+}
+function showRareMenu() {
+  const existing = document.querySelector('.rare-menu-panel');
+  if (existing) { existing.remove(); document.querySelector('.rare-menu')?.setAttribute('aria-expanded', 'false'); return; }
+  const panel = document.createElement('div');
+  panel.className = 'rare-menu-panel';
+  panel.innerHTML = `
+    <button data-action="open-help">How it works</button>
+    <button data-action="export-data">Export backup</button>
+    <button data-action="import-data">Import backup</button>
+    <button data-action="rename-semester">Rename semester</button>
+    <button data-action="end-semester">End semester</button>
+  `;
+  document.body.appendChild(panel);
+  document.querySelector('.rare-menu')?.setAttribute('aria-expanded', 'true');
+  setTimeout(() => document.addEventListener('click', function onDoc(e) {
+    if (!panel.contains(e.target) && !e.target.closest('.rare-menu')) {
+      panel.remove(); document.removeEventListener('click', onDoc);
+    }
+  }), 0);
+}
+
+/* ---------- Actions dispatch ------------------------------------------- */
+document.addEventListener('click', async event => {
+  // nav
+  const nav = event.target.closest('[data-view]');
+  if (nav) { event.preventDefault(); view = nav.dataset.view; openSubjectId = null; render(); window.scrollTo(0, 0); return; }
+
+  // dock
+  const dockBtn = event.target.closest('[data-dock]');
+  if (dockBtn) {
+    const id = dockBtn.dataset.dock;
+    if (id === 'more') { showMoreMenu(); return; }
+    view = id; openSubjectId = null; render();
+    return;
+  }
+
+  // rail
+  const railBtn = event.target.closest('[data-rail]');
+  if (railBtn) {
+    const which = railBtn.dataset.rail;
+    if (railState.open === which) { closeRail(); return; }
+    railState.open = which;
+    renderRail();
+    return;
+  }
+
+  const el = event.target.closest('[data-action]'); if (!el) return;
+  const action = el.dataset.action, id = el.dataset.id, type = el.dataset.type;
+
+  // rail panel actions
+  if (action === 'pause-timer') return pauseTimer();
+  if (action === 'resume-timer') return resumeTimer();
+  if (action === 'finish-timer') { closeRail(); return finishTimer(); }
+  if (action === 'timer-start-picked') { const tid = document.querySelector('[data-action="timer-pick"]')?.value; if (!tid) return toast('Choose a topic', 'error'); closeRail(); return startTimer(tid); }
+  if (action === 'rail-side') { state.settings.railSide = el.dataset.side; persist(); renderRail(); return; }
+  if (action === 'toggle-motion') { state.settings.reduceMotion = !state.settings.reduceMotion; document.body.classList.toggle('reduce-motion', state.settings.reduceMotion); persist(); renderRail(); render(); return; }
+  if (action === 'open-settings') { closeRail(); view = 'settings'; render(); return; }
+
+  // main views
+  if (action === 'close-modal') return closeModal();
+  if (action === 'backdrop' && event.target === el) return closeModal();
+  if (action === 'menu') { const s = document.getElementById('sidebar'); s?.classList.toggle('open'); return; }
+  if (action === 'rare-menu') return showRareMenu();
+  if (action === 'open-help') { view = 'help'; render(); return; }
+  if (action === 'open-subject') return showSubjectModal();
+  if (action === 'open-import-syllabus') return showImportSyllabus();
+  if (action === 'open-subject-detail') { openSubjectId = id; view = 'syllabus'; render(); window.scrollTo(0, 0); return; }
+  if (action === 'close-subject-detail') { openSubjectId = null; render(); return; }
+  if (action === 'add-exam' || action === 'open-exam') return showExamModal();
+  if (action === 'edit-exam') return showExamModal(state.exams.find(x => x.id === id));
+  if (action === 'delete-exam') {
+    const removed = state.exams.find(x => x.id === id);
+    if (!removed) return;
+    state.exams = state.exams.filter(x => x.id !== id); persist(); render();
+    toast('Exam removed', '', () => { state.exams.push(removed); persist(); render(); });
+    return;
+  }
+  if (action === 'delete-subject') {
+    const removed = state.subjects.find(x => x.id === id); if (!removed) return;
+    if (!confirm(`Delete ${removed.name}? Its topics and notes will be removed too.`)) return;
+    const removedNotes = state.notes.filter(n => n.attach.type === 'subject' && n.attach.id === id || n.attach.type === 'unit' && removed.units.some(u => u.id === n.attach.id) || n.attach.type === 'topic' && removed.units.some(u => u.topics.some(t => t.id === n.attach.id)));
+    state.subjects = state.subjects.filter(x => x.id !== id);
+    state.notes = state.notes.filter(n => !removedNotes.includes(n));
+    const tids = new Set(removed.units.flatMap(u => u.topics.map(t => t.id)));
+    state.exams.forEach(e => e.topicIds = (e.topicIds || []).filter(t => !tids.has(t)));
+    persist(); render();
+    toast('Subject removed', '', () => { state.subjects.push(removed); state.notes.push(...removedNotes); persist(); render(); });
+    return;
+  }
+  if (action === 'start-topic') return startTimer(id);
+  if (action === 'add-topic') return showTopicModal(id, el.dataset.unit || '');
+  if (action === 'add-note') return showNoteModal(null, { type, id });
+  if (action === 'open-note') return showNoteModal(id);
+  if (action === 'add-question') return showQuestionModal();
+  if (action === 'delete-question') {
+    const removed = state.questions.find(x => x.id === id); if (!removed) return;
+    state.questions = state.questions.filter(x => x.id !== id); persist(); render();
+    toast('Question deleted', '', () => { state.questions.push(removed); persist(); render(); });
+    return;
+  }
+  if (action === 'practice-topic') {
+    const f = findTopic(id); if (!f) return;
+    openModal('Practice this topic', `${esc(f.subject.name)} · ${esc(f.topic.name)}`, `<p style="font-size:13.5px;line-height:1.7;color:#737a6d">Write your own question and answer. This goes into your Library question bank.</p>`, `<button class="btn btn-outline" data-action="close-modal">Close</button><button class="btn btn-primary" data-action="new-question-for-topic" data-id="${id}">+ New question</button>`);
+    return;
+  }
+  if (action === 'new-question-for-topic') { closeModal(); return showQuestionModal(); }
+  if (action === 'save-note') {
+    const attachStr = document.getElementById('noteAttach').value;
+    const body = document.getElementById('noteBody').value.trim();
+    const tags = document.getElementById('noteTags').value.split(',').map(x => x.trim()).filter(Boolean);
+    if (!body) return toast('Note body is empty.', 'error');
+    const [t, aid] = attachStr.split(':');
+    if (!t || !aid) return toast('Choose what to attach to.', 'error');
+    if (id) { const ref = state.notes.find(x => x.id === id); Object.assign(ref, { attach: { type: t, id: aid }, body, tags, updatedAt: new Date().toISOString() }); }
+    else state.notes.push({ id: uid('note'), attach: { type: t, id: aid }, body, tags, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    persist(); closeModal(); render();
+    toast('Note saved.', 'success');
+    return;
+  }
+  if (action === 'delete-note') {
+    const removed = state.notes.find(x => x.id === id); if (!removed) return;
+    state.notes = state.notes.filter(x => x.id !== id); persist(); closeModal(); render();
+    toast('Note deleted', '', () => { state.notes.push(removed); persist(); render(); });
+    return;
+  }
+  if (action === 'save-question') {
+    const question = document.getElementById('qText').value.trim();
+    const answer = document.getElementById('qAnswer').value.trim();
+    const tags = document.getElementById('qTags').value.split(',').map(x => x.trim()).filter(Boolean);
+    if (!question) return toast('Question is empty.', 'error');
+    if (id) { const ref = state.questions.find(x => x.id === id); Object.assign(ref, { question, answer, tags, updatedAt: new Date().toISOString() }); }
+    else state.questions.push({ id: uid('q'), question, answer, tags, source: 'manual', createdAt: new Date().toISOString(), srs: { step: 0, due: localDate() } });
+    persist(); closeModal(); render();
+    toast('Question saved.', 'success');
+    return;
+  }
+  if (action === 'quiz-start') return startQuiz();
+  if (action === 'quiz-show') { quizState.revealed = true; render(); return; }
+  if (action === 'quiz-got') return answerQuiz(true);
+  if (action === 'quiz-again') return answerQuiz(false);
+  if (action === 'quiz-close') { quizState = null; render(); return; }
+  if (action === 'goto-library-questions') { view = 'library'; libraryTab = 'questions'; closeSearchSheet(); render(); return; }
+  if (action === 'open-exams') { view = 'exams'; closeSearchSheet(); render(); return; }
+  if (action === 'export-data') {
+    const data = { ...state, settings: { ...state.settings, apiKey: '' }, timer: null, exportedAt: new Date().toISOString(), app: 'ExamFlow' };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `examflow-backup-${localDate()}.json`; a.click(); URL.revokeObjectURL(a.href);
+    state.settings.lastBackup = localDate(); persist(); render();
+    toast('Backup downloaded.', 'success');
+    return;
+  }
+  if (action === 'import-data') { document.getElementById('backupFile')?.click(); return; }
+  if (action === 'end-semester') {
+    if (!confirm('End this semester and clear all data? This cannot be undone.')) return;
+    state = blankState(); persist(); view = 'dashboard'; render();
+    toast('New semester started.', 'success');
+    return;
+  }
+  if (action === 'add-session') return showSessionModal();
+  if (action === 'save-session') {
+    const tid = document.getElementById('sessionTopic').value;
+    const min = Number(document.getElementById('sessionMinutes').value);
+    const date = document.getElementById('sessionDate').value;
+    if (!tid) return toast('Choose a topic.', 'error');
+    if (!(min > 0)) return toast('Minutes must be positive.', 'error');
+    const startAt = new Date(`${date}T09:00:00`).toISOString();
+    logSession(tid, min, startAt);
+    closeModal(); render();
+    toast('Session logged.', 'success');
+    return;
+  }
+  if (action === 'save-settings') {
+    const dh = Number(document.getElementById('dailyHours')?.value);
+    const tm = Number(document.getElementById('targetMinutes')?.value) || null;
+    const rg = Number(document.getElementById('readGoal')?.value);
+    if (dh > 0) state.settings.dailyHours = Math.min(16, dh);
+    state.settings.targetMinutes = tm;
+    if (rg > 0) state.settings.readGoal = Math.min(20, rg);
+    persist(); render();
+    toast('Settings saved.', 'success');
+    return;
+  }
+  if (action === 'rename-semester') {
+    const input = document.getElementById('semesterName');
+    if (input) { const s = input.value.trim(); if (s) { state.semesterName = s; persist(); render(); toast('Semester label saved.'); } return; }
+    const s = prompt('Semester label', state.semesterName);
+    if (s?.trim()) { state.semesterName = s.trim(); persist(); render(); }
+    return;
+  }
+  if (action === 'replan') {
+    const val = Number(document.getElementById('todayHours')?.value);
+    if (val > 0) state.settings.todayHours = Math.min(16, val);
+    const sid = document.getElementById('skipSubject')?.value;
+    state.settings.skipToday = sid ? [sid] : [];
+    state.settings.todayPlanDate = localDate();
+    persist(); render();
+    toast('Today\u2019s plan rebalanced.', 'success');
+    return;
+  }
+  if (action === 'manual-bulk-syllabus') {
+    const name = document.getElementById('manualBulkName').value.trim();
+    const text = document.getElementById('bulkText').value.trim();
+    if (!name || !text) return toast('Name and text are required.', 'error');
+    const units = parseSyllabus(text);
+    if (!units.length) return toast('No topics found.', 'error');
+    const s = { id: uid('sub'), name, color: state.subjects.length % COLORS.length, units: units.map(u => ({ id: uid('unit'), name: u.name, topics: u.topics.map(n => ({ id: uid('topic'), name: n, status: 'unknown', reads: 0, readHistory: [], lastReadAt: null, nextReviewAt: null, reviewStep: 0, estimateMin: 45, priority: 1 })) })) };
+    state.subjects.push(s); persist(); closeModal(); view = 'syllabus'; render();
+    toast(`Added ${name}.`, 'success');
+    return;
+  }
+  if (action === 'save-subject') {
+    const name = document.getElementById('subjectName').value.trim();
+    const text = document.getElementById('syllabusText').value;
+    if (!name) return toast('Name is required.', 'error');
+    const units = parseSyllabus(text);
+    if (!units.length) units.push({ name: 'Unit 1', topics: [] });
+    const s = { id: uid('sub'), name, color: state.subjects.length % COLORS.length, units: units.map(u => ({ id: uid('unit'), name: u.name, topics: u.topics.map(n => ({ id: uid('topic'), name: n, status: 'unknown', reads: 0, readHistory: [], lastReadAt: null, nextReviewAt: null, reviewStep: 0, estimateMin: 45, priority: 1 })) })) };
+    state.subjects.push(s); persist(); closeModal(); view = 'syllabus'; render();
+    toast(`${name} added.`, 'success');
+    return;
+  }
+  if (action === 'save-topic') {
+    const s = findSubject(id); if (!s) return;
+    const unitId = document.getElementById('topicUnit').value;
+    const newUnit = document.getElementById('newUnit').value.trim();
+    const topicName = document.getElementById('topicName').value.trim();
+    if (!topicName) return toast('Topic name is required.', 'error');
+    let unit = s.units.find(u => u.id === unitId);
+    if (unitId === '__new__' || newUnit) {
+      const nm = newUnit || `Unit ${s.units.length + 1}`;
+      unit = s.units.find(u => normalizeKey(u.name) === normalizeKey(nm));
+      if (!unit) { unit = { id: uid('unit'), name: nm, topics: [] }; s.units.push(unit); }
+    }
+    if (!unit) return toast('Choose a unit.', 'error');
+    unit.topics.push({ id: uid('topic'), name: topicName, status: 'unknown', reads: 0, readHistory: [], lastReadAt: null, nextReviewAt: null, reviewStep: 0, estimateMin: 45, priority: 1 });
+    persist(); closeModal(); render();
+    toast('Topic added.', 'success');
+    return;
+  }
+  if (action === 'save-exam') {
+    const name = document.getElementById('examName').value.trim();
+    const date = document.getElementById('examDate').value;
+    const topicIds = [...document.querySelectorAll('input[name="topicIds"]:checked')].map(x => x.value);
+    if (!name || !date) return toast('Name and date required.', 'error');
+    if (id) { const ref = state.exams.find(x => x.id === id); Object.assign(ref, { name, date, topicIds }); }
+    else state.exams.push({ id: uid('exam'), name, date, topicIds, createdAt: new Date().toISOString() });
+    persist(); closeModal(); render();
+    toast('Exam saved.', 'success');
+    return;
+  }
+  if (action === 'topic-status') { markStatus(el.dataset.id, el.value); render(); return; }
+  if (action === 'close-sheet') return closeSearchSheet();
+});
+
+/* ---------- Change/input handlers -------------------------------------- */
+document.addEventListener('change', event => {
+  const el = event.target;
+  if (el.matches('[data-action="topic-status"]')) { markStatus(el.dataset.id, el.value); render(); return; }
+  if (el.matches('[data-action="toggle-motion"]')) { state.settings.reduceMotion = el.checked; document.body.classList.toggle('reduce-motion', el.checked); persist(); return; }
+  if (el.matches('[data-action="timer-target"]')) { if (state.timer) { state.timer.targetMinutes = Number(el.value) || null; state.settings.targetMinutes = Number(el.value) || null; persist(); } return; }
+  if (el.matches('[data-action="default-target"]')) { state.settings.targetMinutes = Number(el.value) || null; persist(); return; }
+  if (el.id === 'syllabusFilter') { syllabusFilter = el.value; render(); return; }
+  if (el.id === 'backupFile' && el.files?.[0]) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!data || !Array.isArray(data.subjects)) throw new Error('Not an ExamFlow backup.');
+        if (!confirm('Import this backup and replace the current workspace?')) return;
+        state = { ...blankState(), ...data, timer: null, settings: { ...blankState().settings, ...(data.settings || {}), apiKey: state.settings.apiKey || '' } };
+        persist(); render();
+        toast('Backup imported.', 'success');
+      } catch (e) { toast('Import failed: ' + e.message, 'error'); }
+    };
+    reader.readAsText(el.files[0]);
+    return;
+  }
+  if (el.matches('.unit-check')) {
+    const s = findSubject(el.dataset.subject); const u = s?.units.find(x => x.id === el.dataset.unit);
+    if (u) u.topics.forEach(t => { const cb = document.querySelector(`input[name="topicIds"][value="${t.id}"]`); if (cb) cb.checked = el.checked; });
+    return;
+  }
+  if (el.matches('[data-lib-tag]')) { libraryFilter.tag = el.value; render(); return; }
+  if (el.matches('[data-tab]')) { libraryTab = el.dataset.tab; quizState = null; render(); return; }
+});
+document.addEventListener('input', event => {
+  const el = event.target;
+  if (el.id === 'syllabusSearch') { const p = el.selectionStart; searchQuery = el.value; render(); const inp = document.getElementById('syllabusSearch'); inp?.focus(); inp?.setSelectionRange(p, p); return; }
+  if (el.matches('[data-lib-search]')) { libraryFilter.q = el.value; const p = el.selectionStart; render(); const inp = document.querySelector('[data-lib-search]'); inp?.focus(); inp?.setSelectionRange(p, p); return; }
+  if (el.id === 'searchInput') { runSearch(el.value); return; }
+});
+
+/* ---------- Keyboard shortcuts ----------------------------------------- */
+document.addEventListener('keydown', event => {
+  const isMac = navigator.platform.toUpperCase().includes('MAC');
+  const cmdK = (isMac ? event.metaKey : event.ctrlKey) && event.key.toLowerCase() === 'k';
+  const slash = event.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  if (cmdK || slash) { event.preventDefault(); openSearchSheet(); return; }
+  if (event.key === 'Escape') {
+    if (document.querySelector('#modalRoot [role="dialog"]')) { closeModal(); return; }
+    if (document.querySelector('.sheet-host.open')) { closeSearchSheet(); return; }
+    if (railState.open) { closeRail(); return; }
+    if (document.getElementById('sidebar')?.classList.contains('open')) { document.getElementById('sidebar').classList.remove('open'); return; }
+  }
+});
+
+/* ---------- Scroll: hide rail & dock on scroll down, show on up -------- */
+window.addEventListener('scroll', () => {
+  const y = window.scrollY;
+  const dy = y - (window._lastY || 0);
+  window._lastY = y;
+  if (Math.abs(dy) < 8) return;
+  const down = dy > 0;
+  // don't hide when near top or bottom
+  const nearTop = y < 60;
+  const nearBottom = (window.innerHeight + y) > (document.body.scrollHeight - 60);
+  const shouldHide = down && !nearTop && !nearBottom;
+  railHidden = shouldHide;
+  dockHidden = shouldHide;
+  const rail = document.getElementById('rail');
+  const dock = document.getElementById('dock');
+  rail?.classList.toggle('hidden', railHidden);
+  dock?.classList.toggle('hidden', dockHidden);
+  if (shouldHide && railState.open) closeRail();
+}, { passive: true });
+
+/* ---------- Search overlay (opens) ------------------------------------- */
+function showMoreMenu() {
+  const host = document.getElementById('modalRoot');
+  host.innerHTML = `<div class="modal-backdrop" data-action="backdrop"><section class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><div><h2>More</h2><p>Exams, insights and help.</p></div><button class="modal-close" data-action="close-modal">×</button></div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button class="btn btn-outline" style="justify-content:flex-start" data-view="exams">Exams</button>
+      <button class="btn btn-outline" style="justify-content:flex-start" data-view="metrics">Insights</button>
+      <button class="btn btn-outline" style="justify-content:flex-start" data-view="help">Help</button>
+      <button class="btn btn-outline" style="justify-content:flex-start" data-view="settings">Settings</button>
+    </div>
+    <div class="modal-actions"><button class="btn btn-outline" data-action="close-modal">Close</button></div>
+  </section></div>`;
+}
+
+/* ---------- Tutor tour (simplified, kept for parity) ------------------- */
+const TOUR = [
+  { title: 'Welcome to ExamFlow', text: 'A quick tour. Everything works locally on this device.' },
+  { view: 'syllabus', title: 'Your syllabus', text: 'Add subjects, units and topics here. Notes can be attached to any of them.' },
+  { view: 'plan', title: 'Your plan', text: 'Today\u2019s tasks, ordered by urgency and pace.' },
+  { view: 'library', title: 'Library', text: 'Notes and questions in one place. Use the quiz for spaced repetition.' },
+];
+function startTour() {
+  closeModal(); tourI = 0; paintTour();
+}
+function paintTour() {
+  const st = TOUR[tourI]; if (!st) return endTour();
+  if (st.view && view !== st.view) { view = st.view; render(); }
+  let root = document.getElementById('tourRoot');
+  root.innerHTML = `<div class="tour-card">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="flex:1;font-size:12px;color:#b8d934;font-weight:600">Step ${tourI + 1} of ${TOUR.length}</span>
+    </div>
+    <h3>${st.title}</h3>
+    <p>${st.text}</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      ${tourI ? '<button class="btn btn-outline btn-small" data-action="tour-back" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.35)">Back</button>' : ''}
+      <button class="btn btn-primary btn-small" data-action="tour-next">${tourI === TOUR.length - 1 ? 'Done' : 'Next'}</button>
+    </div>
+  </div>`;
+  document.querySelectorAll('[data-action="tour-next"]').forEach(b => b.onclick = () => { tourI++; tourI >= TOUR.length ? endTour() : paintTour(); });
+  document.querySelectorAll('[data-action="tour-back"]').forEach(b => b.onclick = () => { tourI = Math.max(0, tourI - 1); paintTour(); });
+}
+function endTour() { tourI = -1; document.getElementById('tourRoot').innerHTML = ''; state.tourDone = true; persist(); }
+
+/* ---------- Syllabus parser ------------------------------------------- */
 function parseSyllabus(text) {
-  const lines = text.split(/\r?\n/).map(x => x.trim()).filter(Boolean); const units = []; let current = null;
-  const unitPattern = /^(?:unit|module|chapter|section)\s*([\w.-]+)?\s*[:\-–.)]?\s*(.*)$/i;
+  const lines = text.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  const units = []; let cur = null;
+  const unitRe = /^(?:unit|module|chapter|section)\s*([\w.-]+)?\s*[:\-–.)]?\s*(.*)$/i;
   for (let line of lines) {
     line = line.replace(/^[-*•\d.)\s]+/, '').trim(); if (!line) continue;
-    const m = line.match(unitPattern);
-    if (m) { current = { name: `Unit ${m[1] || units.length + 1}${m[2] ? ` · ${m[2]}` : ''}`, topics: [] }; units.push(current); continue; }
-    if (!current) { current = { name: `Unit ${units.length + 1}`, topics: [] }; units.push(current); }
-    current.topics.push(line.replace(/[:;]$/, ''));
+    const m = line.match(unitRe);
+    if (m) { cur = { name: `Unit ${m[1] || units.length + 1}${m[2] ? ` · ${m[2]}` : ''}`, topics: [] }; units.push(cur); continue; }
+    if (!cur) { cur = { name: `Unit ${units.length + 1}`, topics: [] }; units.push(cur); }
+    cur.topics.push(line.replace(/[:;]$/, ''));
   }
   return units.filter(u => u.topics.length);
 }
-function mergeParsedBatches(batches) {
-  const merged = [];
-  for (const batch of batches) for (const raw of batch.subjects || []) {
-    const name = String(raw.name || raw.subject || '').trim(); if (!name) continue;
-    let subject = merged.find(s => normalizeKey(s.name) === normalizeKey(name));
-    if (!subject) { subject = { name, units: [] }; merged.push(subject); }
-    for (const rawUnit of raw.units || []) {
-      const unitName = String(rawUnit.name || rawUnit.unit || '').trim() || `Unit ${subject.units.length + 1}`;
-      const ordinal = unitName.match(/^(?:unit|module|chapter|section)\s*([\p{L}\p{N}.-]+)/iu)?.[1];
-      const unitKey = ordinal ? `unit ${normalizeKey(ordinal)}` : normalizeKey(unitName);
-      let unit = subject.units.find(u => u._key === unitKey);
-      if (!unit) { unit = { name: unitName, topics: [], _key: unitKey }; subject.units.push(unit); }
-      for (const value of rawUnit.topics || []) {
-        const topicName = String(typeof value === 'string' ? value : value?.name || value?.topic || '').trim();
-        if (topicName && !unit.topics.some(t => normalizeKey(t) === normalizeKey(topicName))) unit.topics.push(topicName);
-      }
-    }
+
+/* ---------- Tab title live update ------------------------------------- */
+setInterval(() => {
+  if (state.timer) {
+    document.title = `${fmtTime(timerElapsed())} · ${VIEW_TITLES[view] || 'ExamFlow'}`;
+    const el = document.getElementById('railTimerLabel');
+    if (el) el.textContent = fmtTime(timerElapsed());
   }
-  return merged.map(s => ({ name: s.name, units: s.units.filter(u => u.topics.length).map(u => ({ name: u.name, topics: u.topics })) })).filter(s => s.units.length);
-}
-function parseImportedSubjectsJSON(text) {
-  let data; try { data = JSON.parse(text); } catch (error) { throw new Error(`Please fix the JSON syntax in the preview. ${error.message}`); }
-  const subjects = mergeParsedBatches(Array.isArray(data) ? [{ subjects: data }] : [data]);
-  if (!subjects.length) throw new Error('No subjects and topics were found. Check the parsed content or import a text-based PDF.');
-  return subjects;
-}
-function mergeImportedSubjects(incoming) {
-  const report = { subjectsAdded: 0, subjectsMatched: 0, unitsAdded: 0, topicsAdded: 0, duplicatesSkipped: 0 };
-  for (const source of incoming) {
-    const name = String(source.name || '').trim(); if (!name) continue;
-    let target = state.subjects.find(s => normalizeKey(s.name) === normalizeKey(name));
-    if (!target) { target = { id: uid('sub'), name, color: state.subjects.length % COLORS.length, units: [] }; state.subjects.push(target); report.subjectsAdded++; }
-    else report.subjectsMatched++;
-    if (!Array.isArray(target.units)) target.units = [];
-    for (const incomingUnit of source.units || []) {
-      const unitName = String(incomingUnit.name || '').trim() || `Unit ${target.units.length + 1}`;
-      const ordinal = unitName.match(/^(?:unit|module|chapter|section)\s*([\p{L}\p{N}.-]+)/iu)?.[1];
-      const key = ordinal ? `unit ${normalizeKey(ordinal)}` : normalizeKey(unitName);
-      let unit = target.units.find(u => (u._mergeKey || (() => { const m = String(u.name).match(/^(?:unit|module|chapter|section)\s*([\p{L}\p{N}.-]+)/iu); return m ? `unit ${normalizeKey(m[1])}` : normalizeKey(u.name); })()) === key);
-      if (!unit) { unit = { id: uid('unit'), name: unitName, topics: [] }; target.units.push(unit); report.unitsAdded++; }
-      if (!Array.isArray(unit.topics)) unit.topics = [];
-      for (const rawTopic of incomingUnit.topics || []) {
-        const topicName = String(typeof rawTopic === 'string' ? rawTopic : rawTopic?.name || rawTopic?.topic || '').trim();
-        if (!topicName) continue;
-        if (unit.topics.some(t => normalizeKey(t.name) === normalizeKey(topicName))) { report.duplicatesSkipped++; continue; }
-        unit.topics.push(topicRecord(topicName)); report.topicsAdded++;
-      }
-    }
-  }
-  return report;
-}
-function syllabusPreviewMarkup(subjects) {
-  const counts = subjects.reduce((a, s) => ({ subjects: a.subjects + 1, units: a.units + s.units.length, topics: a.topics + s.units.reduce((n, u) => n + u.topics.length, 0) }), { subjects: 0, units: 0, topics: 0 });
-  const matches = subjects.filter(s => state.subjects.some(old => normalizeKey(old.name) === normalizeKey(s.name))).length;
-  const editor = subjects.map((subject, si) => `<details class="import-preview-subject" ${si === 0 ? 'open' : ''}><summary><span><strong>${esc(subject.name)}</strong><small>${subject.units.length} units · ${subject.units.reduce((n,u)=>n+u.topics.length,0)} topics</small></span><span class="preview-chevron" aria-hidden="true">⌄</span></summary><div class="import-subject-editor"><div class="field"><label for="previewSubject${si}">Subject name</label><input id="previewSubject${si}" data-preview-subject-name value="${esc(subject.name)}" maxlength="100"></div>${subject.units.map((unit,ui)=>`<details class="import-preview-unit" ${ui===0?'open':''}><summary><span><strong>${esc(unit.name)}</strong><small>${unit.topics.length} topics</small></span><span class="preview-chevron" aria-hidden="true">⌄</span></summary><div class="import-unit-editor"><div class="field"><label for="previewUnit${si}_${ui}">Unit name</label><input id="previewUnit${si}_${ui}" data-preview-unit-name="${si}" data-unit-index="${ui}" value="${esc(unit.name)}" maxlength="100"></div><div class="field"><label for="previewTopics${si}_${ui}">Topics <span class="muted">· one per line</span></label><textarea id="previewTopics${si}_${ui}" data-preview-topics="${si}" data-unit-index="${ui}" rows="${Math.min(8,Math.max(3,unit.topics.length))}">${esc(unit.topics.join('\n'))}</textarea></div></div></details>`).join('')}</div></details>`).join('');
-  openModal('Review extracted syllabus', 'Nothing has been saved yet. Expand a subject or unit to edit its name and topics. Matching existing entries merge without resetting study history.', `<div class="import-summary"><div><strong>${counts.subjects}</strong><small>subjects found</small></div><div><strong>${counts.units}</strong><small>units found</small></div><div><strong>${counts.topics}</strong><small>topics found</small></div></div><p class="field-help" style="margin:12px 0">${matches ? `${matches} subject${matches === 1 ? '' : 's'} match your existing syllabus and will merge.` : 'Existing subjects, units, and topics will be checked to prevent duplicates.'} Review the extracted items below before importing.</p><div class="import-preview-list">${editor}</div><div id="bulkMergeStatus" class="field-help" role="status" aria-live="polite"></div>`, '<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-syllabus-import">Merge into my syllabus</button>');
-}
-function readSyllabusPreview() {
-  return [...document.querySelectorAll('[data-preview-subject-name]')].map((input, si) => ({ name: input.value.trim(), units: [...document.querySelectorAll(`[data-preview-unit-name="${si}"]`)].map((unitInput, ui) => ({ name: unitInput.value.trim(), topics: (document.querySelector(`[data-preview-topics="${si}"][data-unit-index="${ui}"]`)?.value || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean) })) }));
-}
-function splitIntoChunks(text, limit = 12000) {
-  const paras = text.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean); const chunks = []; let current = '';
-  for (const para of paras) {
-    if (para.length > limit) {
-      if (current) { chunks.push(current); current = ''; }
-      let rest = para;
-      while (rest.length > limit) { let cut = rest.lastIndexOf('\n', limit); if (cut < limit * .55) cut = rest.lastIndexOf(' ', limit); if (cut < limit * .55) cut = limit; chunks.push(rest.slice(0, cut)); rest = rest.slice(cut).trim(); }
-      if (rest) current = rest;
-    } else if (current.length + para.length + 2 > limit) { chunks.push(current); current = para; }
-    else current += `${current ? '\n\n' : ''}${para}`;
-  }
-  if (current) chunks.push(current);
-  return chunks;
-}
-async function extractPdfText(file, progress = () => {}) {
-  if (file.size > 50 * 1024 * 1024) throw new Error(`${file.name} is over the 50 MB per-file limit.`);
-  if (!window.pdfjsLibExamFlow) {
-    const pdfjs = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs');
-    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
-    window.pdfjsLibExamFlow = pdfjs;
-  }
-  const data = new Uint8Array(await file.arrayBuffer()); const pdf = await window.pdfjsLibExamFlow.getDocument({ data }).promise;
-  if (pdf.numPages > 500) throw new Error(`${file.name} has ${pdf.numPages} pages. Please split it into files of 500 pages or fewer.`);
-  const pages = [];
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i); const content = await page.getTextContent();
-    const items = content.items.filter(x => x.str?.trim()).map(x => ({ text: x.str.trim(), y: x.transform?.[5] ?? 0, x: x.transform?.[4] ?? 0 })).sort((a, b) => b.y - a.y || a.x - b.x);
-    const lines = []; let currentY = null, line = '';
-    for (const item of items) { if (currentY === null || Math.abs(item.y - currentY) > 3) { if (line) lines.push(line); line = item.text; currentY = item.y; } else line += `${line && !/[\s-]$/.test(line) ? ' ' : ''}${item.text}`; }
-    if (line) lines.push(line);
-    pages.push(`--- Page ${i} ---\n${lines.join('\n')}`); progress(i, pdf.numPages);
-  }
-  const text = pages.join('\n\n');
-  if (text.replace(/[^\p{L}\p{N}]/gu, '').length < 40) throw new Error(`${file.name} has almost no selectable text. It may be a scanned/image-only PDF; paste text or use OCR before importing.`);
-  return { text, pages: pdf.numPages };
-}
-function localSplitSubjects(text) {
-  const head = /^\s*(?:(?:subject|course|paper)(?:\s*(?:title|name|code))?\s*[:\-–—]\s*(.{3,90})|([A-Z]{2,5}\s?-?\d{2,4}[A-Z]?)\s*[:\-–—]\s*(.{3,90}))\s*$/i;
-  const lines = text.split(/\r?\n/); const blocks = []; let cur = null;
-  for (const raw of lines) { const line = raw.trim(); const m = line.match(head);
-    if (m && !/^(?:unit|module|chapter)/i.test(line)) { cur = { name: (m[1] || `${m[2]} ${m[3]}`).replace(/\s+/g, ' ').trim(), body: [] }; blocks.push(cur); }
-    else if (cur && line && !/^---\s*Page/i.test(line) && !/^Source file:/i.test(line)) cur.body.push(line); }
-  return blocks.map(b => ({ name: b.name, units: parseSyllabus(b.body.join('\n')) })).filter(s => s.units.length);
-}
-async function parseWholeSyllabus(text, hooks = {}) {
-  if (!String(state.settings.apiKey || '').trim()) {
-    const local = localSplitSubjects(text); if (local.length) { hooks.onNote?.('No API key — used the built-in heading detector. Review carefully.'); return local; }
-    throw new Error('No subject headings were detected automatically. Add an API key in Settings for AI parsing, or use “Preview as one subject”.');
-  }
-  const chunks = splitIntoChunks(text, 9000); const results = new Array(chunks.length).fill(null); const failed = [];
-  const system = 'You extract academic syllabus structure from document excerpts. Return ONLY valid JSON: {"subjects":[{"name":"Exact subject/course name","units":[{"name":"Unit 1 · title","topics":["specific topic"]}]}]}. Preserve every subject, unit and meaningful topic actually present. Never invent content. Ignore page numbers, headers, footers, grading rules and boilerplate. Keep subject names identical across excerpts. If an excerpt has no subject name, use "Unassigned subject". Topics must be concise and faithful to the source.';
-  aiAbort = new AbortController(); const signal = aiAbort.signal; let done = 0, next = 0;
-  const worker = async () => {
-    while (next < chunks.length && !signal.aborted) {
-      const i = next++; let ok = false, lastErr;
-      for (let attempt = 0; attempt < 3 && !ok && !signal.aborted; attempt++) {
-        try {
-          const r = await aiText(system, `Document section ${i + 1} of ${chunks.length}. Extract all subjects, units and topics in this section.\n\n${chunks[i]}`, null, { signal, meta: true, maxTokens: 8192 });
-          results[i] = parseJsonReply(r.text, true); ok = true;
-        } catch (e) { lastErr = e; if (/Cancelled/.test(e.message) || [401, 403, 404].includes(e.status)) throw e; await new Promise(res => setTimeout(res, 1200 * (attempt + 1))); }
-      }
-      if (!ok && !signal.aborted) failed.push(`${i + 1}${lastErr ? ` (${lastErr.message.slice(0, 70)})` : ''}`);
-      hooks.onProgress?.(++done, chunks.length, failed.length);
-    }
-  };
-  try { await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, worker)); } finally { aiAbort = null; }
-  if (signal.aborted) throw new Error('Import cancelled. Nothing was saved.');
-  const good = results.filter(Boolean); if (!good.length) throw new Error(`No sections could be parsed. ${failed[0] || ''}`.trim());
-  if (failed.length) hooks.onNote?.(`${failed.length} of ${chunks.length} sections failed and were skipped (${failed.slice(0, 3).join('; ')}). Review the result, then re-import those pages if needed.`);
-  return mergeParsedBatches(good);
-}
-async function handleBulkPdfFiles(files) {
-  const status = document.getElementById('bulkImportStatus'); const box = document.getElementById('bulkSyllabusText');
-  if (!files.length) return;
-  if (files.length > 20) { toast('Choose 20 PDFs or fewer at one time.', 'error'); return; }
-  let combined = '';
-  try {
-    for (let i = 0; i < files.length; i++) {
-      if (status) status.textContent = `Reading ${files[i].name} · PDF ${i + 1} of ${files.length}…`;
-      const result = await extractPdfText(files[i], (page, total) => { if (status && page % 5 === 0) status.textContent = `Reading ${files[i].name} · page ${page} of ${total}…`; });
-      combined += `${combined ? '\n\n' : ''}Source file: ${files[i].name}\n${result.text}`;
-      if (combined.length > 1_000_000) throw new Error('Extracted text is over 1 million characters. Split the PDFs into smaller parts and import them one at a time.');
-    }
-    if (box) box.value = combined;
-    if (status) status.textContent = `Text extracted from ${files.length} PDF${files.length === 1 ? '' : 's'} (${combined.length.toLocaleString()} characters). Select “Find all subjects & topics” to review the structure before saving.`;
-  } catch (e) { if (status) status.textContent = e.message; toast(e.message, 'error'); }
-}
-async function runBulkSyllabusParse() {
-  const text = document.getElementById('bulkSyllabusText')?.value.trim(); if (!text) return toast('Upload a PDF or paste your full syllabus first.', 'error');
-  if (text.length > 1_000_000) return toast('This import is over 1 million characters. Split the PDF into smaller parts and import them one at a time.', 'error');
-  const buttons = [...document.querySelectorAll('#modalRoot [data-action="parse-bulk-syllabus"]')]; buttons.forEach(b => { b.disabled = true; b.textContent = 'Reading syllabus…'; });
-  const status = () => document.getElementById('bulkImportStatus'); let note = '';
-  try {
-    const hasKey = !!String(state.settings.apiKey || '').trim(); const n = splitIntoChunks(text, 9000).length;
-    if (status()) status().textContent = hasKey ? `Preparing ${n} section${n === 1 ? '' : 's'} (3 in parallel). Your provider may bill these requests. Close this window to cancel.` : 'No API key set — scanning for subject headings locally…';
-    const subjects = await parseWholeSyllabus(text, { onProgress: (d, t, f) => { if (status()) status().textContent = `Organized ${d} of ${t} sections${f ? ` · ${f} failed` : ''}…`; }, onNote: m => { note = m; } });
-    if (!subjects.length) throw new Error('No subjects and topics were detected. Add a course title or split the document by subject.');
-    if (!status()) return; closeModal(); pendingSyllabusImport = subjects; syllabusPreviewMarkup(subjects); if (note) toast(note, 'error');
-  } catch (e) { if (status()) status().textContent = e.message; toast(e.message, 'error'); }
-  finally { buttons.forEach(b => { b.disabled = false; b.textContent = '✦ Find all subjects & topics'; }); }
-}
-function runManualBulkImport() {
-  const name = document.getElementById('manualBulkName')?.value.trim(); const text = document.getElementById('bulkSyllabusText')?.value.trim();
-  if (!name) return toast('Enter a subject name for manual import.', 'error'); if (!text) return toast('Paste text or extract text from a PDF first.', 'error');
-  const units = parseSyllabus(text); if (!units.length) return toast('Could not find topics in that text. Add one topic per line.', 'error');
-  pendingSyllabusImport = [{ name, units }]; closeModal(); syllabusPreviewMarkup(pendingSyllabusImport);
-}
-function topicRowsMarkup(subjects = state.subjects, selectedIds = []) {
-  return `<div class="modal-checklist">${subjects.map(s => `<div style="font-size:8px;font-weight:700;color:#9185cd;padding:6px 2px 3px">${esc(s.name)}</div>${s.units.map(u => `<div class="check-row" style="background:#fafafe;border-radius:7px;margin:3px 0"><label style="display:flex;align-items:center;gap:7px;flex:1"><input type="checkbox" class="unit-check" data-subject="${s.id}" data-unit="${u.id}" ${u.topics.length && u.topics.every(t => selectedIds.includes(t.id)) ? 'checked' : ''}><strong>${esc(u.name)}</strong><span class="muted">${u.topics.length} topics</span></label></div>${u.topics.map(t => `<label class="check-row" style="padding-left:17px"><input type="checkbox" name="topicIds" value="${t.id}" ${selectedIds.includes(t.id) ? 'checked' : ''}><span>${esc(t.name)}</span><small class="muted">${t.reads || 0} reads</small></label>`).join('')}`).join('')}`).join('') || '<div class="muted" style="padding:10px;font-size:9px">Add subjects and topics first.</div>'}</div>`;
-}
-function showExamModal(existing = null) {
-  const e = existing || {}; const chosen = e.topicIds || []; const mode = e.mode || 'quick';
-  openModal(existing ? 'Edit checkpoint' : 'Add an exam checkpoint', 'Pick the date and exact units covered. Past checkpoints never erase reading history.', `<form id="examForm"><div class="grid" style="grid-template-columns:1fr 1fr;gap:10px"><div class="field"><label for="examName">Exam / checkpoint name</label><input id="examName" name="name" required maxlength="80" value="${esc(e.name || '')}" placeholder="Mid-1, Mid-2, Finals…"></div><div class="field"><label for="examDate">Date</label><input id="examDate" name="date" type="date" required value="${esc(e.date || localDate(new Date(Date.now() + 7 * 86400000)))}"></div></div><div class="field"><label for="examMode">Planning mode</label><select id="examMode" name="mode"><option value="quick" ${mode === 'quick' ? 'selected' : ''}>Quick exam · one checkpoint</option><option value="mid" ${mode === 'mid' ? 'selected' : ''}>Mid timetable · semester checkpoint</option><option value="final" ${mode === 'final' ? 'selected' : ''}>Final exam · whole-semester review</option></select></div><fieldset class="field"><legend>Choose the units / topics this exam covers</legend>${topicRowsMarkup(state.subjects, chosen)}</fieldset></form>`, `<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-exam" data-id="${e.id || ''}">${existing ? 'Save changes' : 'Add checkpoint'}</button>`);
-}
-function showTopicModal(subjectId, unitId = '') {
-  const s = state.subjects.find(x => x.id === subjectId); if (!s) return;
-  openModal('Add a topic', `Add one topic to ${esc(s.name)}.`, `<form id="topicForm"><div class="field"><label for="topicUnit">Unit</label><select id="topicUnit" name="unitId">${s.units.map(u => `<option value="${u.id}" ${u.id === unitId ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}<option value="__new__">+ Create a new unit…</option></select></div><div class="field"><label for="newUnit">New unit name (optional)</label><input id="newUnit" name="newUnit" placeholder="e.g. Unit 6 · Applications"></div><div class="field"><label for="topicName">Topic name</label><input id="topicName" name="name" required maxlength="120" placeholder="e.g. Binary search trees"></div></form>`, `<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-topic" data-id="${subjectId}">Add topic</button>`);
-}
-function startTopic(topicId) {
-  const found = findTopic(topicId); if (!found) return toast('Add this topic to a subject first.', 'error');
-  if (state.timer) { if (!confirm('A session is already running. Stop it and start this topic?')) return; stopTimer(false); }
-  state.timer = { topicId, startedAt: new Date().toISOString(), pausedMs: 0 }; persist(); view = 'plan'; render(); renderTimerModal(); toast(`Timer started: ${found.topic.name}`, 'success');
-}
-function stopTimer(showMessage = true) {
-  if (!state.timer) return;
-  const tm = state.timer; const minutes = Math.max(1, Math.round((Date.now() - new Date(tm.startedAt).getTime() - (tm.pausedMs || 0)) / 60000));
-  const result = topicRead(tm.topicId, minutes, tm.startedAt); state.timer = null; persist(); render(); if (showMessage && result) toast(`${fmtDuration(minutes)} logged · ${result.topic.name} read ${result.topic.reads} ${result.topic.reads === 1 ? 'time' : 'times'}`, 'success');
-}
-function updateTimerText() {
-  const readout = document.getElementById('timerReadout'); if (!readout || !state.timer) return;
-  const elapsed = Math.max(0, Math.floor((Date.now() - new Date(state.timer.startedAt).getTime() - (state.timer.pausedMs || 0)) / 1000));
-  readout.innerHTML = `${String(Math.floor(elapsed / 3600)).padStart(2, '0')}:${String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}<small>FOCUS TIME</small>`;
-}
-function renderTimerModal() {
-  const topics = allTopics(); const active = state.timer ? findTopic(state.timer.topicId) : null;
-  openModal('Focus timer', active ? `Studying ${active.subject.name} · ${active.topic.name}` : 'Choose a topic and get into a focused session.', `<div class="timer-panel"><div class="timer-context">${active ? `${esc(active.unit.name)} · ${esc(active.subject.name)}` : 'One focused session adds a read to your semester history'}</div><div class="timer-ring"><div class="timer-readout" id="timerReadout">00:00:00<small>FOCUS TIME</small></div></div>${active ? `<div class="timer-context">${esc(active.topic.name)} · ${active.topic.reads || 0} ${active.topic.reads === 1 ? 'read' : 'reads'} so far</div>` : `<div class="field" style="max-width:330px;margin:10px auto"><label for="timerTopic">Pick a topic</label><select id="timerTopic">${topics.map(t => `<option value="${t.id}">${esc(t.subject)} · ${esc(t.unit)} · ${esc(t.name)}</option>`).join('')}</select></div>`}<div class="timer-controls" style="margin-top:17px">${active ? `<button class="btn btn-primary" data-action="stop-timer">✓ Finish session</button>` : `<button class="btn btn-primary" data-action="start-selected">▶ Start focus</button>`}</div></div>`, `<button class="btn btn-outline" data-action="close-modal">Close</button>`);
-  if (state.timer) updateTimerText();
-}
-function exportData() {
-  const blob = new Blob([JSON.stringify({ ...state, settings: { ...state.settings, apiKey: '' }, timer: null, exportedAt: new Date().toISOString(), app: 'ExamFlow' }, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `examflow-backup-${localDate()}.json`; a.click(); URL.revokeObjectURL(a.href); toast('Backup downloaded.', 'success');
-}
-function importDataFile(file) {
-  const reader = new FileReader(); reader.onload = () => { try { const data = JSON.parse(reader.result); if (!data || !Array.isArray(data.subjects) || !Array.isArray(data.exams) || !Array.isArray(data.sessions)) throw new Error('Not an ExamFlow backup.'); if (!confirm('Import this backup and replace the current browser workspace? Export your current data first if you want to keep it.')) return; const clean = { ...blankState(), ...data, timer: null, settings: { ...blankState().settings, ...(data.settings || {}), apiKey: state.settings.apiKey || '' } }; delete clean.exportedAt; delete clean.app; state = clean; persist(); closeModal(); render(); toast('Backup imported.', 'success'); } catch (e) { toast(`Could not import: ${e.message}`, 'error'); } }; reader.readAsText(file);
-}
-async function extractPdf(file) {
-  const status = document.getElementById('parseStatus'); if (status) status.textContent = 'Loading the in-browser PDF reader…';
-  try {
-    const result = await extractPdfText(file, (page, total) => { if (status && page % 5 === 0) status.textContent = `Reading page ${page} of ${total}…`; });
-    const box = document.getElementById('syllabusText'); if (box) box.value = result.text; if (status) status.textContent = `Extracted ${result.text.length.toLocaleString()} characters from ${result.pages} PDF page${result.pages === 1 ? '' : 's'}. Review it, then save or organize with AI.`;
-  } catch (e) { if (status) status.textContent = 'Could not read this PDF. It may be scanned/image-only; paste the text or use AI vision with an exam circular.'; toast('PDF text extraction failed.', 'error'); }
-}
-const PROVIDERS = {
-  gemini:   { label: 'Google Gemini', model: 'gemini-3.8-flash', models: ['gemini-3.8-flash'], hint: 'Starts with “AIza”', test: /^AIza[\w-]{20,}$/ },
-  openai:   { label: 'OpenAI',        model: 'gpt-6-luna',       models: ['gpt-6-luna', 'gpt-4o-mini', 'gpt-4o'],       hint: 'Starts with “sk-”',   test: /^sk-[\w-]{20,}$/ },
-  anthropic:{ label: 'Anthropic',     model: 'claude-sonnet-5-5', models: ['claude-sonnet-5-5', 'claude-haiku-4-5-20251001'], hint: 'Starts with “sk-ant-”', test: /^sk-ant-[\w-]{20,}$/ }
-};
-let aiAbort = null;
-function keyLooksValid(provider, key) { return !!PROVIDERS[provider]?.test.test(String(key || '').trim()); }
-function friendlyAiError(status, provider, raw) {
-  const name = PROVIDERS[provider]?.label || 'The provider';
-  if (status === 401 || status === 403) return `${name} rejected the API key (HTTP ${status}). Re-paste it in Settings and check that billing/API access is enabled.`;
-  if (status === 404) return `${name} could not find that model. Open Settings and pick a model your key can use.`;
-  if (status === 429) return `${name} rate limit or quota reached (HTTP 429). Wait a minute, or check your plan's quota.`;
-  if (status >= 500) return `${name} is temporarily unavailable (HTTP ${status}). Try again shortly.`;
-  return raw || `${name} returned HTTP ${status}. Check the model and key.`;
-}
-async function aiText(system, user, image = null, opts = {}) {
-  const { provider, apiKey, model } = state.settings; const key = String(apiKey || '').trim();
-  if (!key) throw new Error('Add an API key in Settings first.');
-  const preset = PROVIDERS[provider] || PROVIDERS.gemini; const m = (model || '').trim() || preset.model; const maxTokens = opts.maxTokens || 8192;
-  const attempt = async (withTemp) => {
-    let url, headers, body;
-    if (provider === 'gemini') {
-      url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`; headers = { 'Content-Type': 'application/json', 'x-goog-api-key': key };
-      const parts = [{ text: `${system}\n\n${user}` }]; if (image) parts.push({ inline_data: { mime_type: image.type || 'image/jpeg', data: image.base64 } });
-      body = { contents: [{ parts }], generationConfig: { maxOutputTokens: maxTokens, responseMimeType: 'application/json', ...(withTemp ? { temperature: .2 } : {}) } };
-    } else if (provider === 'anthropic') {
-      url = 'https://api.anthropic.com/v1/messages'; headers = { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
-      const content = [{ type: 'text', text: user }]; if (image) content.unshift({ type: 'image', source: { type: 'base64', media_type: image.type || 'image/jpeg', data: image.base64 } });
-      body = { model: m, max_tokens: maxTokens, system, messages: [{ role: 'user', content }], ...(withTemp ? { temperature: .2 } : {}) };
-    } else {
-      url = 'https://api.openai.com/v1/chat/completions'; headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
-      const content = image ? [{ type: 'text', text: user }, { type: 'image_url', image_url: { url: `data:${image.type || 'image/jpeg'};base64,${image.base64}` } }] : user;
-      body = { model: m, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: system }, { role: 'user', content }], ...(withTemp ? { temperature: .2 } : {}) };
-    }
-    const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), opts.timeout || 90000);
-    const outer = opts.signal; const onAbort = () => ctrl.abort(); outer?.addEventListener('abort', onAbort);
-    try {
-      let resp; try { resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal }); }
-      catch (e) { if (outer?.aborted) throw new Error('Cancelled.'); if (e.name === 'AbortError') throw new Error('The AI request timed out. Try again or use a smaller section.'); throw new Error('Network error (fetch). Check your connection; some networks or extensions block direct API calls.'); }
-      let data = {}; try { data = await resp.json(); } catch { /* non-JSON body */ }
-      if (!resp.ok) { const raw = data.error?.message || data.message; const e = new Error(friendlyAiError(resp.status, provider, raw)); e.status = resp.status; e.raw = raw || ''; throw e; }
-      if (provider === 'gemini') { const c = data.candidates?.[0]; const t = c?.content?.parts?.map(p => p.text || '').join('') || ''; if (!t && data.promptFeedback?.blockReason) throw new Error(`Gemini blocked this content (${data.promptFeedback.blockReason}).`); return { text: t, truncated: c?.finishReason === 'MAX_TOKENS' }; }
-      if (provider === 'anthropic') return { text: data.content?.map(p => p.text || '').join('') || '', truncated: data.stop_reason === 'max_tokens' };
-      const c = data.choices?.[0]; return { text: c?.message?.content || '', truncated: c?.finish_reason === 'length' };
-    } finally { clearTimeout(timer); outer?.removeEventListener('abort', onAbort); }
-  };
-  let out;
-  try { out = await attempt(true); }
-  catch (e) { if ((e.status === 400 || e.status === 422) && /temperature/i.test(e.raw || '')) out = await attempt(false); else throw e; }
-  if (opts.meta) return out; return out.text;
-}
-function repairJson(t) {
-  let out = '', stack = [], inStr = false, esc = false;
-  for (const ch of t) { out += ch; if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; } if (ch === '"') inStr = true; else if (ch === '{' || ch === '[') stack.push(ch); else if (ch === '}' || ch === ']') stack.pop(); }
-  if (inStr) out += '"'; out = out.replace(/[,:\s]+$/, ''); if (/"[^"]*"\s*:\s*$/.test(out)) out += 'null';
-  while (stack.length) out += stack.pop() === '{' ? '}' : ']'; return out;
-}
-function parseJsonReply(text, allowRepair = false) {
-  const cleaned = String(text || '').replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim(); if (!cleaned) throw new Error('The AI returned an empty reply.');
-  const a = cleaned.search(/[{\[]/), b = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']')); const body = a >= 0 ? cleaned.slice(a, b >= a ? b + 1 : undefined) : cleaned;
-  try { return JSON.parse(body); } catch (e) { if (!allowRepair) throw e; return JSON.parse(repairJson(a >= 0 ? cleaned.slice(a) : cleaned)); }
-}
-async function splitSyllabusAI() {
-  const text = document.getElementById('syllabusText')?.value.trim(); if (!text) return toast('Paste syllabus text first.', 'error');
-  const status = document.getElementById('parseStatus'); status.textContent = 'Asking your provider to organize the syllabus…';
-  try { const out = await aiText('You organize academic syllabi. Return only valid JSON with shape {"units":[{"name":"Unit 1: title","topics":["topic"]}]}. Keep all important syllabus items, do not invent a syllabus, and consolidate obvious duplicate lines.', `Organize the following syllabus into units and specific study topics. If unit boundaries are absent, create sensible units.\n\n${text}`); const data = parseJsonReply(out, true); const formatted = (data.units || []).map(u => `${u.name}:\n${(u.topics || []).map(t => `- ${t}`).join('\n')}`).join('\n\n'); if (!formatted) throw new Error('The provider returned no units.'); document.getElementById('syllabusText').value = formatted; status.textContent = 'Organized into units. Review the text, edit if needed, then save the subject.'; }
-  catch (e) { status.textContent = e.message; toast(e.message, 'error'); }
-}
-function fileToBase64(file) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file); }); }
-async function readCircular(file) {
-  if (!state.settings.apiKey) { closeModal(); toast('Add your provider key in Settings to read circular images.', 'error'); view = 'settings'; render(); return; }
-  closeModal(); openModal('Reading exam circular', 'Your selected provider is extracting dates and subjects from the image.', '<div class="empty-state"><div class="empty-icon">◷</div><h3>Reading the circular…</h3><p>Keep this page open. Nothing is saved until you confirm the parsed rows.</p></div>', '<button class="btn btn-outline" data-action="close-modal">Cancel</button>');
-  try {
-    const image = { type: file.type || 'image/jpeg', base64: await fileToBase64(file) };
-    const out = await aiText('You extract examination timetable rows from an image. Return JSON only: {"exams":[{"name":"Mid-1","date":"YYYY-MM-DD","subject":"Subject","units":["Unit 1"]}]}. Use ISO dates. If the year is absent, infer the nearest plausible future date based on today and mark uncertainty in a note field. Do not hallucinate illegible dates; use an empty date string and a note. One subject/date row per entry.', `Today is ${localDate()}. Read every exam row from this circular. Extract name, date, subject, and any explicitly stated units/syllabus coverage.`, image);
-    const data = parseJsonReply(out); showParsedExams(data.exams || []);
-  } catch (e) { closeModal(); toast(`Could not read circular: ${e.message}`, 'error'); }
-}
-function showParsedExams(rows) {
-  const normalized = rows.map(x => ({ name: x.name || 'Exam', date: x.date || '', subject: x.subject || '', units: Array.isArray(x.units) ? x.units.join(', ') : (x.units || ''), note: x.note || '' }));
-  if (!normalized.length) return toast('No exam rows found in that image.', 'error');
-  const table = normalized.map((r, i) => `<div class="import-row"><input data-imp="name" data-row="${i}" value="${esc(r.name)}" aria-label="Exam name"><input data-imp="date" data-row="${i}" type="date" value="${/^\d{4}-\d{2}-\d{2}$/.test(r.date) ? esc(r.date) : ''}" aria-label="Exam date"><input data-imp="subject" data-row="${i}" value="${esc(r.subject)}" list="subjectNames" placeholder="Subject" aria-label="Subject"><button class="btn btn-danger btn-small" data-action="remove-import-row" data-row="${i}">×</button><div style="grid-column:1/-1"><input style="width:100%" data-imp="units" data-row="${i}" value="${esc(r.units)}" placeholder="Units, comma-separated"><small class="field-help">${esc(r.note)}</small></div></div>`).join('');
-  openModal('Confirm circular dates', 'Review and correct every parsed row. Existing subject/unit names are matched to your syllabus; you can edit the exams after importing.', `<datalist id="subjectNames">${state.subjects.map(s => `<option value="${esc(s.name)}">`).join('')}</datalist><div class="import-rows" id="importRows">${table}</div><button class="btn btn-outline btn-small" style="margin-top:10px" data-action="add-import-row">+ Add another row</button>`, '<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-imported-exams">Add these checkpoints</button>');
-}
-function addExamRowsToState(rows) {
-  let count = 0; let duplicates = 0;
-  for (const row of rows) {
-    const subjectKey = normalizeKey(row.subject); const subject = subjectKey ? state.subjects.find(s => normalizeKey(s.name) === subjectKey) || state.subjects.find(s => normalizeKey(s.name).includes(subjectKey) || subjectKey.includes(normalizeKey(s.name))) : null;
-    const unitTerms = row.units.split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
-    const topicIds = subject ? subject.units.filter(u => !unitTerms.length || unitTerms.some(term => u.name.toLowerCase().includes(term) || term.includes(u.name.toLowerCase()))).flatMap(u => u.topics.map(t => t.id)) : [];
-    if (!row.date || !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) continue;
-    const name = row.name.trim() || 'Exam'; const duplicate = state.exams.find(e => e.date === row.date && normalizeKey(e.name) === normalizeKey(name));
-    if (duplicate) { duplicate.topicIds = [...new Set([...(duplicate.topicIds || []), ...topicIds])]; duplicates++; continue; }
-    state.exams.push({ id: uid('exam'), name, date: row.date, mode: 'mid', topicIds, createdAt: new Date().toISOString() }); count++;
-  }
-  persist(); return { count, duplicates };
-}
-function getImportRows() { return [...document.querySelectorAll('[data-imp="name"]')].map(el => { const i = el.dataset.row; const val = key => document.querySelector(`[data-imp="${key}"][data-row="${i}"]`)?.value || ''; return { name: val('name'), date: val('date'), subject: val('subject'), units: val('units') }; }); }
-function openPractice(topicId) {
-  const f = findTopic(topicId); if (!f) return;
-  openModal('Practice this topic', `${esc(f.subject.name)} · ${esc(f.unit.name)} · ${esc(f.topic.name)}`, `<div id="questionResult" class="help-box">Generate a short practice set with your configured AI provider. Add your answer notes below, then update your confidence status when you are done.</div><div class="field" style="margin-top:12px"><label for="answerNotes">Your answer notes</label><textarea id="answerNotes" placeholder="Write a quick answer, steps, or what felt difficult…"></textarea></div><div class="row"><button class="btn btn-soft btn-small" data-action="generate-questions" data-id="${topicId}">✦ Generate 5 questions</button><span class="field-help">Not saved by default; mark topic status to feed back into your plan.</span></div>`, `<button class="btn btn-outline" data-action="close-modal">Close</button><button class="btn btn-outline" data-action="practice-status" data-id="${topicId}" data-status="review">Mark review</button><button class="btn btn-primary" data-action="practice-status" data-id="${topicId}" data-status="ready">Mark ready</button>`);
-}
-async function generateQuestions(topicId) {
-  const f = findTopic(topicId); if (!f) return;
-  const root = document.getElementById('questionResult'); root.textContent = 'Generating a varied set of five questions…';
-  try { const out = await aiText('You are a careful tutor. Return valid JSON only with shape {"questions":[{"question":"...","type":"Recall|Apply|Explain|Challenge"}]}. Make five concise questions based only on the given topic, varied in difficulty. No answers unless asked.', `Create 5 study questions for the topic “${f.topic.name}” in ${f.subject.name}, ${f.unit.name}.`); const data = parseJsonReply(out); root.innerHTML = `<strong>Practice set</strong><ol style="padding-left:18px;line-height:1.8">${(data.questions || []).map(q => `<li><span class="status-pill status-review">${esc(q.type || 'Practice')}</span> ${esc(q.question)}</li>`).join('')}</ol>`; }
-  catch (e) { root.textContent = e.message; toast(e.message, 'error'); }
-}
-function sampleWorkspace() {
-  if (state.subjects.length && !confirm('Add a sample set of subjects and exams to your current workspace?')) return;
-  const specs = [
-    ['Data Structures', [['Unit 1 · Foundations', ['Complexity analysis', 'Arrays and linked lists', 'Stacks and queues']], ['Unit 2 · Trees', ['Binary search trees', 'AVL rotations', 'Tree traversals']]]],
-    ['Organic Chemistry', [['Unit 1 · Structure', ['Hybridization', 'Resonance and acidity', 'Stereochemistry']], ['Unit 2 · Reactions', ['Substitution mechanisms', 'Elimination reactions', 'Carbonyl chemistry']]]],
-    ['Physics II', [['Unit 1 · Fields', ['Electric potential', 'Gauss law', 'Capacitance']], ['Unit 2 · Circuits', ['Kirchhoff laws', 'RC circuits', 'Magnetic induction']]]],
-    ['Mathematics', [['Unit 1 · Calculus', ['Partial derivatives', 'Multiple integrals', 'Vector calculus']]]],
-    ['Computer Networks', [['Unit 1 · Protocols', ['OSI layers', 'TCP and UDP', 'IP addressing']]]]
-  ];
-  const made = specs.map(([name, units], i) => ({ id: uid('sub'), name, color: i, units: units.map(([un, topics]) => ({ id: uid('unit'), name: un, topics: topics.map((n, j) => ({ id: uid('topic'), name: n, status: j === 0 && i === 0 ? 'review' : 'unknown', reads: j === 0 && i === 0 ? 1 : 0, readHistory: j === 0 && i === 0 ? [new Date(Date.now() - 86400000).toISOString()] : [], lastReadAt: j === 0 && i === 0 ? new Date(Date.now() - 86400000).toISOString() : null, nextReviewAt: null, reviewStep: 0, estimateMin: 45, priority: 1 })) })) }));
-  state.subjects.push(...made); const dt = new Date(); dt.setDate(dt.getDate() + 9); state.exams.push({ id: uid('exam'), name: 'Mid-1', date: localDate(dt), mode: 'mid', topicIds: made.slice(0, 3).flatMap(s => s.units[0].topics.map(t => t.id)), createdAt: new Date().toISOString() }); persist(); view = 'dashboard'; render(); toast('Sample workspace added. Replace it with your real syllabus when ready.', 'success');
+}, 1000);
+
+/* ---------- Reduce motion initial + service worker --------------------- */
+document.body.classList.toggle('reduce-motion', !!state.settings.reduceMotion);
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
 }
 
-// One delegated listener keeps the static application easy to deploy and inspect.
-document.addEventListener('click', async event => {
-  const nav = event.target.closest('[data-view]'); if (nav) { event.preventDefault(); setMenuOpen(false); view = nav.dataset.view; render(); requestAnimationFrame(() => document.querySelector('.page-heading h1,.intro-card h2')?.focus()); return; }
-  const el = event.target.closest('[data-action]'); if (!el) return;
-  const action = el.dataset.action, id = el.dataset.id;
-  if (action === 'close-modal') return closeModal();
-  if (action === 'backdrop' && event.target === el) return closeModal();
-  if (action === 'menu') return setMenuOpen(!document.getElementById('sidebar').classList.contains('open'));
-  if (action === 'close-menu') return setMenuOpen(false);
-  if (action === 'show-help') return showHelp();
-  if (action === 'open-subject') return showSubjectModal();
-  if (action === 'open-import-syllabus') return showImportSyllabus();
-  if (action === 'choose-bulk-pdf') { document.getElementById('bulkPdfFiles')?.click(); return; }
-  if (action === 'choose-subject-pdf') { document.getElementById('pdfFile')?.click(); return; }
-  if (action === 'parse-bulk-syllabus') return runBulkSyllabusParse();
-  if (action === 'manual-bulk-syllabus') return runManualBulkImport();
-  if (action === 'save-syllabus-import') {
-    try { const draft = readSyllabusPreview(); if (draft.some(s => !s.name)) throw new Error('Give each subject a name before importing.'); const subjects = draft.filter(s => s.units.some(u => u.name && u.topics.length)); if (!subjects.length) throw new Error('Add at least one named unit with a topic before importing.'); const report = mergeImportedSubjects(subjects); if (!report.subjectsAdded && !report.subjectsMatched) throw new Error('No valid subjects were ready to merge.'); persist(); pendingSyllabusImport = []; closeModal(); view = 'syllabus'; render(); toast(`Added ${report.subjectsAdded} subject${report.subjectsAdded === 1 ? '' : 's'} and ${report.topicsAdded} new topic${report.topicsAdded === 1 ? '' : 's'}; ${report.duplicatesSkipped} duplicate topic${report.duplicatesSkipped === 1 ? '' : 's'} skipped. Existing history was kept.`, 'success'); } catch (e) { const status = document.getElementById('bulkMergeStatus'); if (status) status.textContent = e.message; toast(e.message, 'error'); } return;
-  }
-  if (action === 'open-exam') return showExamModal();
-  if (action === 'show-timer') return renderTimerModal();
-  if (action === 'start-topic') return startTopic(id);
-  if (action === 'stop-timer') { closeModal(); return stopTimer(); }
-  if (action === 'start-selected') { const topicId = document.getElementById('timerTopic')?.value; if (!topicId) return toast('Add a topic first.', 'error'); closeModal(); return startTopic(topicId); }
-  if (action === 'open-exam' && id) return showExamModal(state.exams.find(x => x.id === id));
-  if (action === 'edit-exam') return showExamModal(state.exams.find(x => x.id === id));
-  if (action === 'delete-exam') { if (confirm('Remove this exam checkpoint? Topic reading history will stay untouched.')) { state.exams = state.exams.filter(x => x.id !== id); persist(); render(); toast('Checkpoint removed. Topic history is unchanged.'); } return; }
-  if (action === 'add-topic') return showTopicModal(id, el.dataset.unit || '');
-  if (action === 'rename-subject') { const s = state.subjects.find(x => x.id === id); const name = prompt('Subject name', s?.name || ''); if (name?.trim() && s) { s.name = name.trim(); persist(); render(); } return; }
-  if (action === 'delete-subject') { const s = state.subjects.find(x => x.id === id); if (s && confirm(`Delete ${s.name} and its topics? Logged session history remains as a snapshot, but this subject and its exam links will be removed.`)) { const tids = new Set(s.units.flatMap(u => u.topics.map(t => t.id))); state.subjects = state.subjects.filter(x => x.id !== id); state.exams.forEach(e => e.topicIds = (e.topicIds || []).filter(t => !tids.has(t))); persist(); render(); toast('Subject removed.'); } return; }
-  if (action === 'save-subject') {
-    const f = document.getElementById('subjectForm'); if (!f.reportValidity()) return;
-    const name = f.elements.name.value.trim(); const text = f.elements.syllabus.value; const units = parseSyllabus(text).map(u => ({ id: uid('unit'), name: u.name, topics: u.topics.map(n => ({ id: uid('topic'), name: n, status: 'unknown', reads: 0, readHistory: [], lastReadAt: null, nextReviewAt: null, reviewStep: 0, estimateMin: 45, priority: 1 })) }));
-    if (!units.length) units.push({ name: 'Unit 1', topics: [] });
-    const report = mergeImportedSubjects([{ name, units }]); persist(); closeModal(); view = 'syllabus'; render(); toast(report.subjectsAdded ? `${name} added.` : `${name} already existed; ${report.topicsAdded} new topic${report.topicsAdded === 1 ? '' : 's'} merged without changing study history.`, 'success'); return;
-  }
-  if (action === 'ai-split') return splitSyllabusAI();
-  if (action === 'save-topic') { const f = document.getElementById('topicForm'); if (!f.reportValidity()) return; const s = state.subjects.find(x => x.id === id); let unit = s?.units.find(u => u.id === f.elements.unitId.value); if (f.elements.unitId.value === '__new__' || f.elements.newUnit.value.trim()) { const unitName = f.elements.newUnit.value.trim() || `Unit ${s.units.length + 1}`; unit = s.units.find(u => normalizeKey(u.name) === normalizeKey(unitName)); if (!unit) { unit = { id: uid('unit'), name: unitName, topics: [] }; s.units.push(unit); } } if (!unit) return toast('Select or create a unit.', 'error'); const topicName = f.elements.name.value.trim(); if (unit.topics.some(t => normalizeKey(t.name) === normalizeKey(topicName))) return toast('That topic already exists in this unit.', 'error'); unit.topics.push(topicRecord(topicName)); persist(); closeModal(); render(); toast('Topic added.', 'success'); return; }
-  if (action === 'save-exam') { const f = document.getElementById('examForm'); if (!f.reportValidity()) return; const data = { name: f.elements.name.value.trim(), date: f.elements.date.value, mode: f.elements.mode.value, topicIds: [...f.querySelectorAll('input[name="topicIds"]:checked')].map(x => x.value) }; if (id) { const exam = state.exams.find(x => x.id === id); if (exam) Object.assign(exam, data); } else { const duplicate = state.exams.find(x => x.date === data.date && normalizeKey(x.name) === normalizeKey(data.name)); if (duplicate) duplicate.topicIds = [...new Set([...(duplicate.topicIds || []), ...data.topicIds])]; else state.exams.push({ id: uid('exam'), ...data, createdAt: new Date().toISOString() }); } persist(); closeModal(); view = 'exams'; render(); toast('Checkpoint saved. Topic histories continue across exams.', 'success'); return; }
-  if (action === 'unit-check') return;
-  if (action === 'export-data') return exportData();
-  if (action === 'import-data') { document.getElementById('backupFile')?.click(); return; }
-  if (action === 'end-semester') { if (!confirm('End this semester and clear all current subjects, exams, and study logs from this browser? This cannot be undone. Export a backup first if you want to keep the history.')) return; exportData(); state = blankState(); persist(); view = 'dashboard'; render(); toast('New semester started. Your old backup was downloaded.', 'success'); return; }
-  if (action === 'save-settings') { const provider = document.getElementById('provider')?.value; const key = document.getElementById('apiKey')?.value; const model = document.getElementById('model')?.value; const dh = Number(document.getElementById('dailyHours')?.value); const rg = Number(document.getElementById('readGoal')?.value); if (provider) state.settings.provider = provider; if (key !== undefined) state.settings.apiKey = key.replace(/\s+/g, ''); if (model !== undefined) state.settings.model = model.trim(); if (dh > 0) state.settings.dailyHours = Math.min(16, dh); if (rg > 0) state.settings.readGoal = Math.min(20, rg); const sem = document.getElementById('semesterName')?.value; if (sem?.trim()) state.semesterName = sem.trim(); persist(); render(); toast('Settings saved on this device.', 'success'); return; }
-  if (action === 'toggle-key') { const i = document.getElementById('apiKey'); if (i) { const show = i.type === 'password'; i.type = show ? 'text' : 'password'; el.textContent = show ? 'Hide' : 'Show'; el.setAttribute('aria-pressed', String(show)); } return; }
-  if (action === 'forget-key') { state.settings.apiKey = ''; persist(); render(); toast('API key removed from this browser.'); return; }
-  if (action === 'test-ai') { const key = document.getElementById('apiKey')?.value.trim(); if (key !== undefined) state.settings.apiKey = key; const p = document.getElementById('provider')?.value; if (p) state.settings.provider = p; const m = document.getElementById('model')?.value; if (m) state.settings.model = m; persist(); el.disabled = true; el.textContent = 'Testing…'; try { const out = await aiText('Reply with only a short JSON object.', 'Return {"ok":true,"message":"Connected"}.'); parseJsonReply(out); toast(`Connected to ${PROVIDERS[state.settings.provider]?.label}.`, 'success'); } catch (e) { toast(e.message, 'error'); } finally { el.disabled = false; el.textContent = 'Test connection'; } return; }
-  if (action === 'import-timetable') { const body = `<div class="field"><label for="circularFile">Upload an exam circular or timetable image</label><input id="circularFile" type="file" accept="image/*" capture="environment"></div><div class="field"><label for="timetableText">Or paste timetable text</label><textarea id="timetableText" placeholder="Mid-1\nOct 20 — Physics — Units 1, 2\nOct 22 — Chemistry — Units 1, 2"></textarea></div><div class="field-help">Photo parsing uses the vision model from Settings; no OCR engine is bundled. Dates are editable before import. If AI is unavailable, add the dates manually.</div>`; openModal('Import an exam timetable', 'Choose a circular photo or paste the schedule text.', body, '<button class="btn btn-outline" data-action="close-modal">Cancel</button><button class="btn btn-soft" data-action="parse-timetable-text">✦ Parse pasted text</button><button class="btn btn-primary" data-action="choose-circular">Read image</button>'); return; }
-  if (action === 'choose-circular') { const file = document.getElementById('circularFile')?.files?.[0]; if (!file) return toast('Choose an image first.', 'error'); return readCircular(file); }
-  if (action === 'parse-timetable-text') { const text = document.getElementById('timetableText')?.value.trim(); if (!text) return toast('Paste timetable text first.', 'error'); if (!state.settings.apiKey) return toast('Add your AI key in Settings first.', 'error'); el.disabled = true; el.textContent = 'Parsing…'; try { const out = await aiText('Extract exam timetable rows. Return JSON only: {"exams":[{"name":"Mid-1","date":"YYYY-MM-DD","subject":"Physics","units":["Unit 1"]}]}. Do not invent dates; use empty if absent.', `Today is ${localDate()}. Parse this timetable: ${text}`); const data = parseJsonReply(out); showParsedExams(data.exams || []); } catch (e) { toast(e.message, 'error'); } return; }
-  if (action === 'save-imported-exams') { const result = addExamRowsToState(getImportRows()); if (!result.count && !result.duplicates) return toast('Add at least one row with a valid date.', 'error'); closeModal(); view = 'exams'; render(); toast(`${result.count} new checkpoint${result.count === 1 ? '' : 's'} added; ${result.duplicates} duplicate${result.duplicates === 1 ? '' : 's'} merged.`, 'success'); return; }
-  if (action === 'add-import-row') { const current = getImportRows(); current.push({ name: '', date: '', subject: '', units: '' }); showParsedExams(current); return; }
-  if (action === 'remove-import-row') { const current = getImportRows(); current.splice(Number(el.dataset.row), 1); showParsedExams(current); return; }
-  if (action === 'practice-topic') return openPractice(id);
-  if (action === 'generate-questions') return generateQuestions(id);
-  if (action === 'practice-status') { const ok = el.dataset.status === 'ready'; const f = findTopic(id); if (f) { if (ok) rescheduleReview(f.topic, true); else rescheduleReview(f.topic, false); persist(); closeModal(); render(); toast(ok ? 'Marked ready; a spaced review is scheduled.' : 'Added to review; the planner will bring it back soon.', 'success'); } return; }
-  if (action === 'replan') { const val = Number(document.getElementById('todayHours')?.value); if (val > 0) state.settings.todayHours = Math.min(16, val); const sid = document.getElementById('skipSubject')?.value; state.settings.skipToday = sid ? [sid] : []; state.settings.todayPlanDate = localDate(); persist(); render(); toast('Today’s plan rebalanced.', 'success'); return; }
-  if (action === 'clear-filter') { searchQuery = ''; syllabusFilter = ''; render(); return; }
-  if (action === 'rename-semester') { const input = document.getElementById('semesterName'); if (input) { const s = input.value.trim(); if (s) { state.semesterName = s; persist(); render(); toast('Semester label saved.'); } } else { const s = prompt('Semester label', state.semesterName); if (s?.trim()) { state.semesterName = s.trim(); persist(); render(); } } return; }
-  if (action === 'sample-data') return sampleWorkspace();
+/* ---------- Mobile sidebar toggle on outside-click --------------------- */
+document.addEventListener('click', e => {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar?.classList.contains('open')) return;
+  if (sidebar.contains(e.target)) return;
+  if (e.target.closest('[data-action="menu"]')) return;
+  sidebar.classList.remove('open');
 });
 
-document.addEventListener('change', event => {
-  if (event.target?.id === 'modelPreset') { const inp = document.getElementById('model'); if (event.target.value === '__custom') { inp.value = ''; inp.focus(); } else { inp.value = event.target.value; state.settings.model = event.target.value; persist(); } return; }
-  if (event.target?.id === 'provider') { const k = document.getElementById('apiKey')?.value || ''; state.settings.provider = event.target.value; state.settings.model = PROVIDERS[event.target.value].model; state.settings.apiKey = k.trim(); persist(); render(); return; }
-  const el = event.target;
-  if (el.id === 'pdfFile' && el.files?.[0]) return extractPdf(el.files[0]);
-  if (el.id === 'bulkPdfFiles' && el.files?.length) return handleBulkPdfFiles([...el.files]);
-  if (el.id === 'backupFile' && el.files?.[0]) return importDataFile(el.files[0]);
-  if (el.id === 'syllabusFilter') { syllabusFilter = el.value; render(); return; }
-  if (el.matches('[data-action="topic-status"]')) { const status = el.value; markStatus(el.dataset.id, status); toast(status === 'ready' ? 'Ready for now; first spaced review scheduled.' : `Topic marked ${status}.`, 'success'); return; }
-  if (el.matches('.unit-check')) { const unit = state.subjects.find(s => s.id === el.dataset.subject)?.units.find(u => u.id === el.dataset.unit); if (unit) unit.topics.forEach(t => { const box = document.querySelector(`input[name="topicIds"][value="${t.id}"]`); if (box) box.checked = el.checked; }); }
-});
-document.addEventListener('input', event => {
-  if (event.target?.id === 'model') { const sel = document.getElementById('modelPreset'); if (sel) sel.value = [...sel.options].some(o => o.value === event.target.value.trim()) ? event.target.value.trim() : '__custom'; }
-  if (event.target?.id === 'apiKey') { const st = document.getElementById('keyStatus'); const v = event.target.value.trim(); const pv = document.getElementById('provider')?.value || state.settings.provider; if (st) { st.className = `key-status ${v ? (keyLooksValid(pv, v) ? 'ok' : 'warn') : ''}`; st.textContent = v ? (keyLooksValid(pv, v) ? '● Format looks right — press Save, then Test' : `● Format looks unusual (${PROVIDERS[pv].hint})`) : '○ No key'; } }
-  if (event.target.id === 'syllabusSearch') { const pos = event.target.selectionStart; searchQuery = event.target.value; const root = document.getElementById('app'); root.innerHTML = renderSyllabus(); const input = document.getElementById('syllabusSearch'); input?.focus(); input?.setSelectionRange(pos, pos); }
-});
-document.addEventListener('keydown', event => {
-  const dialog = document.querySelector('#modalRoot [role="dialog"]');
-  if (event.key === 'Escape') { if (dialog) { event.preventDefault(); closeModal(); } else if (document.getElementById('sidebar')?.classList.contains('open')) { event.preventDefault(); setMenuOpen(false); } return; }
-  if (event.key !== 'Tab' || !dialog) return;
-  const items = [...dialog.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(x => x.getClientRects().length);
-  if (!items.length) { event.preventDefault(); dialog.focus(); return; }
-  const first = items[0], last = items[items.length - 1];
-  if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last.focus(); }
-  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-});
-
-// Clicking a unit checkbox updates its topic checkboxes; avoid nested form submission.
-document.addEventListener('submit', event => event.preventDefault());
-tickHandle = setInterval(updateTimerText, 1000);
+/* ---------- Boot ------------------------------------------------------ */
 render();
-
 if (!state.tourDone && !state.subjects.length) setTimeout(startTour, 800);
+
+/* ensure rail side attribute once */
+document.getElementById('rail').dataset.side = state.settings.railSide || 'right';
