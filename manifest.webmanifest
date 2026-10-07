@@ -1,16 +1,15 @@
 {
-  "name": "ExamFlow — Semester Studio",
+  "name": "ExamFlow",
   "short_name": "ExamFlow",
-  "description": "A private semester study studio for syllabus coverage, exam planning, and spaced review.",
+  "description": "A private semester study studio that turns your syllabus and exam dates into a focused daily plan.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#f4f5ee",
   "theme_color": "#20231f",
-  "icons": [{
-    "src": "./favicon.svg",
-    "sizes": "any",
-    "type": "image/svg+xml",
-    "purpose": "any maskable"
-  }]
+  "icons": [
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
 }
