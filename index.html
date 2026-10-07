@@ -10,26 +10,18 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="ExamFlow" />
-  <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="ExamFlow" />
-  <meta property="og:title" content="ExamFlow — know what to study next" />
-  <meta property="og:description" content="A calm, private study studio for syllabus coverage, exam planning, and spaced review." />
-  <meta property="og:url" content="./" />
-  <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="ExamFlow — know what to study next" />
-  <meta name="twitter:description" content="Turn a full semester into a clear, focused daily study plan." />
-  <link rel="canonical" href="./" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="apple-touch-icon" href="./favicon.svg" />
   <title>ExamFlow — know what to study next</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=16" />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <a class="skip-link" href="#app">Skip to content</a>
-  <div class="sidebar-scrim" id="sidebarScrim" data-action="close-menu" aria-hidden="true"></div>
+
   <div class="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Main menu">
       <a class="brand" href="#dashboard" data-view="dashboard" aria-label="ExamFlow home">
@@ -39,10 +31,11 @@
       <div class="semester-chip"><span class="pulse-dot" aria-hidden="true"></span><span id="semesterLabel">Your semester</span><button class="icon-button tiny" data-action="rename-semester" aria-label="Rename semester">✎</button></div>
       <nav class="main-nav" aria-label="Main navigation">
         <p class="nav-caption">YOUR WORKSPACE</p>
-        <button class="nav-link active" data-view="dashboard"><span class="nav-icon" aria-hidden="true">◫</span>Overview</button>
+        <button class="nav-link" data-view="dashboard"><span class="nav-icon" aria-hidden="true">◫</span>Overview</button>
         <button class="nav-link" data-view="syllabus"><span class="nav-icon" aria-hidden="true">▤</span>Syllabus <span class="nav-count" id="topicCount">0</span></button>
         <button class="nav-link" data-view="exams"><span class="nav-icon" aria-hidden="true">◷</span>Exams</button>
         <button class="nav-link" data-view="plan"><span class="nav-icon" aria-hidden="true">✳</span>Study plan</button>
+        <button class="nav-link" data-view="library"><span class="nav-icon" aria-hidden="true">▦</span>Library</button>
         <button class="nav-link" data-view="metrics"><span class="nav-icon" aria-hidden="true">▥</span>Insights</button>
       </nav>
       <div class="sidebar-bottom">
@@ -55,21 +48,27 @@
     <main class="main-area" id="mainContent">
       <header class="topbar">
         <button class="icon-button mobile-menu" data-action="menu" aria-label="Open main menu" aria-expanded="false" aria-controls="sidebar">☰</button>
-        <div class="crumb"><span class="desktop-crumb">Workspace</span><b class="desktop-crumb" aria-hidden="true">/</b><strong id="pageTitle">Overview</strong></div>
-        <div class="topbar-right"><div class="date-pill"><span aria-hidden="true">◷</span><span id="todayLabel"></span></div><button class="btn btn-help" data-action="show-help" aria-label="How it works"><span aria-hidden="true">?</span><span class="help-label">How it works</span></button><button class="avatar" data-view="settings" aria-label="Open settings">⚙</button></div>
+        <button class="icon-button rare-menu" data-action="rare-menu" aria-label="Rare menu" aria-haspopup="true" aria-expanded="false">☰</button>
+        <div class="crumb"><strong id="pageTitle">Overview</strong></div>
+        <div class="topbar-right"><div class="date-pill"><span aria-hidden="true">◷</span><span id="todayLabel"></span></div></div>
       </header>
       <div id="app" class="page-content" aria-live="polite" aria-atomic="false" tabindex="-1"></div>
     </main>
   </div>
-  <nav class="mobile-tabbar" aria-label="Quick navigation">
-    <button class="mobile-tab active" data-view="dashboard"><span aria-hidden="true">◫</span><small>Home</small></button>
-    <button class="mobile-tab" data-view="syllabus"><span aria-hidden="true">▤</span><small>Syllabus</small></button>
-    <button class="mobile-tab" data-view="exams"><span aria-hidden="true">◷</span><small>Exams</small></button>
-    <button class="mobile-tab" data-view="plan"><span aria-hidden="true">✳</span><small>Plan</small></button>
-    <button class="mobile-tab" data-view="metrics"><span aria-hidden="true">▥</span><small>Insights</small></button>
-  </nav>
+
+  <!-- Right rail (Search / Timer / Settings) -->
+  <aside class="rail" id="rail" data-side="right" aria-label="Quick tools"></aside>
+
+  <!-- Floating bottom nav -->
+  <nav class="dock" id="dock" aria-label="Primary navigation"></nav>
+
+  <!-- Overlays -->
+  <div class="scrim" id="scrim" hidden></div>
+  <div class="sheet-host" id="sheetHost"></div>
   <div id="modalRoot"></div>
   <div id="toastRoot" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="./app.js?v=6"></script>
+  <div id="tourRoot"></div>
+
+  <script type="module" src="./app.js"></script>
 </body>
 </html>
