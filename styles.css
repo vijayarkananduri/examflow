@@ -458,3 +458,41 @@ html,body{overflow-x:hidden}
   .roadmap-panel[open] .roadmap-list{padding:0 12px 12px}.roadmap-day{padding:10px}.roadmap-task{align-items:flex-start;gap:7px}.roadmap-task .btn{min-width:54px;flex:none}.roadmap-task-copy{flex:1;min-width:0}
   .risk-banner{font-size:12px!important;line-height:1.45;padding:11px}.plan-controls{width:100%;overflow:hidden}.task-row{grid-template-columns:36px 8px minmax(0,1fr) auto;gap:6px}.task-name{font-size:12px!important;line-height:1.35}.task-name small{font-size:11px!important;line-height:1.4}.task-duration,.task-time{font-size:10px!important}.task-row .btn{min-width:54px;padding-inline:9px;white-space:nowrap}
 }
+
+/* ExamFlow v11 — intentional mobile home composition */
+@media(max-width:760px){
+  .page-heading{gap:10px;margin-bottom:14px}
+  .page-heading h1{font-size:26px!important;line-height:1.12;letter-spacing:-1px}
+  .page-heading p{font-size:12px!important;line-height:1.45}
+  .heading-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
+  .heading-actions .btn{min-width:0;padding-inline:10px;font-size:11px}
+  .day-panel{grid-template-columns:112px minmax(0,1fr);grid-template-rows:auto auto;gap:15px 14px;padding:18px 14px;border-radius:22px}
+  .day-ring{grid-column:1;grid-row:1 / span 2;width:108px;height:108px;margin:0;align-self:start}
+  .day-ring>div{width:82px;height:82px}
+  .day-ring strong{font-size:25px}
+  .day-ring small{font-size:10px}
+  .day-main{grid-column:2;grid-row:1;width:auto;align-self:start}
+  .day-main .eyebrow{text-align:left;font-size:9px}
+  .day-main h2{text-align:left;font-size:20px;line-height:1.18;margin:3px 0 7px;max-width:none}
+  .day-verdict{text-align:left;font-size:11px;line-height:1.35;padding:7px 9px;margin-bottom:0}
+  .day-stats{grid-column:1 / -1;grid-row:2;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .day-stat{min-height:70px;padding:9px 9px;border-radius:12px}
+  .day-stat strong{font-size:20px}
+  .day-stat small{font-size:10px;line-height:1.2}
+  .day-blocks{grid-column:1 / -1;grid-row:3;gap:8px}
+  .day-block{padding:10px;border-radius:14px}
+  .day-block b{font-size:9px}
+  .day-task{padding:10px;border-radius:11px}
+  .day-task span{font-size:12px}
+  .day-task small{font-size:10px}
+  .metrics-row{gap:8px;margin-top:0}
+  .metric-card{min-height:100px;padding:13px 12px;border-radius:17px}
+  .metric-top{font-size:10px;gap:4px}
+  .metric-value{font-size:23px!important;margin-top:8px}
+  .metric-foot{font-size:10px!important;line-height:1.25}
+  .dashboard-hero{gap:10px}
+  .hero-card{min-height:260px;padding:22px 19px;border-radius:22px}
+  .hero-card h2{font-size:26px!important;line-height:1.12}
+  .hero-card p{font-size:12px;line-height:1.5}
+  .hero-side{min-height:190px;padding:19px;border-radius:22px}
+}
