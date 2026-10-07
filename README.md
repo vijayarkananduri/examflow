@@ -1,5 +1,11 @@
 # ExamFlow — Semester Studio
 
+> A private, browser-first study studio that turns a messy semester into a clear next step.
+
+**Live app:** [vijayarkananduri.github.io/examflow](https://vijayarkananduri.github.io/examflow/)
+
+ExamFlow helps students import a syllabus, organize subjects and units, connect topics to exam dates, and follow a focused daily study plan. It keeps reading history and spaced-review progress on the device, so your semester work builds instead of resetting between exams.
+
 ExamFlow is a browser-only study workspace for turning a full syllabus into a focused daily plan. Import syllabi, organize subjects → units → topics, plan around exams, log study sessions, and keep spaced-review history across the semester.
 
 ## What changed in the refresh
