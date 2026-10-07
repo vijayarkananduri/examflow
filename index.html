@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   <link rel="apple-touch-icon" href="./favicon.svg" />
-  <title>ExamFlow — know what to study next</title>
+  <title>ExamFlow</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -22,49 +22,21 @@
 <body>
   <a class="skip-link" href="#app">Skip to content</a>
 
-  <div class="app-shell">
-    <aside class="sidebar" id="sidebar" aria-label="Main menu">
-      <a class="brand" href="#dashboard" data-view="dashboard" aria-label="ExamFlow home">
-        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
-        <span class="brand-name">exam<span>flow</span><small>SEMESTER STUDIO</small></span>
-      </a>
-      <div class="semester-chip"><span class="pulse-dot" aria-hidden="true"></span><span id="semesterLabel">Your semester</span><button class="icon-button tiny" data-action="rename-semester" aria-label="Rename semester">✎</button></div>
-      <nav class="main-nav" aria-label="Main navigation">
-        <p class="nav-caption">YOUR WORKSPACE</p>
-        <button class="nav-link" data-view="dashboard"><span class="nav-icon" aria-hidden="true">◫</span>Overview</button>
-        <button class="nav-link" data-view="syllabus"><span class="nav-icon" aria-hidden="true">▤</span>Syllabus <span class="nav-count" id="topicCount">0</span></button>
-        <button class="nav-link" data-view="exams"><span class="nav-icon" aria-hidden="true">◷</span>Exams</button>
-        <button class="nav-link" data-view="plan"><span class="nav-icon" aria-hidden="true">✳</span>Study plan</button>
-        <button class="nav-link" data-view="library"><span class="nav-icon" aria-hidden="true">▦</span>Library</button>
-        <button class="nav-link" data-view="metrics"><span class="nav-icon" aria-hidden="true">▥</span>Insights</button>
-      </nav>
-      <div class="sidebar-bottom">
-        <div class="focus-mini"><div class="focus-mini-top"><span>THIS WEEK</span><span class="mini-spark" aria-hidden="true">↗</span></div><strong id="weekHours">0h <i>/ 28h</i></strong><div class="mini-progress" aria-hidden="true"><span id="weekProgress"></span></div><small id="weekHint">Start a session to build momentum</small></div>
-        <button class="nav-link settings-link" data-view="settings"><span class="nav-icon" aria-hidden="true">⚙</span>Settings</button>
-        <div class="privacy-note"><span aria-hidden="true">◉</span> Your study data stays on this device</div>
-      </div>
-    </aside>
+  <header class="topbar" id="topbar">
+    <button class="icon-btn" id="menuBtn" data-action="menu" aria-label="More options" aria-haspopup="true" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <h1 class="page-title" id="pageTitle">Home</h1>
+  </header>
 
-    <main class="main-area" id="mainContent">
-      <header class="topbar">
-        <button class="icon-button mobile-menu" data-action="menu" aria-label="Open main menu" aria-expanded="false" aria-controls="sidebar">☰</button>
-        <button class="icon-button rare-menu" data-action="rare-menu" aria-label="Rare menu" aria-haspopup="true" aria-expanded="false">☰</button>
-        <div class="crumb"><strong id="pageTitle">Overview</strong></div>
-        <div class="topbar-right"><div class="date-pill"><span aria-hidden="true">◷</span><span id="todayLabel"></span></div></div>
-      </header>
-      <div id="app" class="page-content" aria-live="polite" aria-atomic="false" tabindex="-1"></div>
-    </main>
-  </div>
+  <main id="app" class="page-content" tabindex="-1" aria-live="polite"></main>
 
-  <!-- Right rail (Search / Timer / Settings) -->
   <aside class="rail" id="rail" data-side="right" aria-label="Quick tools"></aside>
 
-  <!-- Floating bottom nav -->
   <nav class="dock" id="dock" aria-label="Primary navigation"></nav>
 
-  <!-- Overlays -->
   <div class="scrim" id="scrim" hidden></div>
-  <div class="sheet-host" id="sheetHost"></div>
+  <div class="sheet-host" id="sheetHost" role="region" aria-label="Panel"></div>
   <div id="modalRoot"></div>
   <div id="toastRoot" class="toast-root" aria-live="polite" aria-atomic="true"></div>
   <div id="tourRoot"></div>
