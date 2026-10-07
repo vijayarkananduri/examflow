@@ -515,3 +515,43 @@ html,body{overflow-x:hidden}
   .day-stat strong{font-size:21px;line-height:1.05;overflow-wrap:anywhere}
   .day-stat small{font-size:11px;line-height:1.25;overflow-wrap:anywhere}
 }
+
+/* Separate Your Day summary cards on mobile */
+@media (max-width: 760px) {
+  .day-stats {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .day-stat {
+    display: grid;
+    grid-template-columns: minmax(74px, 30%) minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 58px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .day-stat strong {
+    min-width: 0;
+    font-size: 21px;
+    line-height: 1.05;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .day-stat small {
+    min-width: 0;
+    display: block;
+    font-size: 11px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
+
