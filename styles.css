@@ -1,38 +1,118 @@
-/* ExamFlow v14 — separate Your Day summary cards on mobile */
+/* ExamFlow v16 — mobile Your Day redesign: ring only in card, stats/blocks below */
 @media(max-width:760px){
+  .day-panel{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:16px;
+    padding:20px 16px;
+    background:linear-gradient(135deg,#fffefa 0%,#f4f7df 58%,#eef2d3 100%);
+    border-radius:24px;
+    border:1px solid #e0e7c8;
+    min-height:auto;
+  }
+
+  .day-panel::before{
+    display:none;
+  }
+
+  .day-ring{
+    width:120px;
+    height:120px;
+    flex-shrink:0;
+  }
+
+  .day-ring>div{
+    width:90px;
+    height:90px;
+  }
+
+  .day-ring strong{
+    font-size:24px;
+  }
+
+  .day-ring small{
+    font-size:10px;
+  }
+
+  .day-main{
+    display:none;
+  }
+
+  .day-verdict{
+    display:none;
+  }
+
   .day-stats{
+    display:none;
+  }
+
+  .day-blocks{
+    display:none;
+  }
+}
+
+/* Stats displayed as separate cards below day-panel */
+.page-content>section:has(.day-panel)~.lower-grid{
+  margin-top:16px;
+}
+
+@media(max-width:760px){
+  .day-stats-separate{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    margin-bottom:16px;
+  }
+
+  .day-stat-card{
+    background:var(--white);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:12px;
+    text-align:center;
+  }
+
+  .day-stat-card strong{
+    display:block;
+    font-size:20px;
+    font-weight:700;
+    color:var(--brand);
+    margin-bottom:4px;
+  }
+
+  .day-stat-card small{
+    display:block;
+    font-size:10px;
+    color:var(--muted);
+    line-height:1.3;
+  }
+
+  .day-blocks-separate{
     display:grid;
     grid-template-columns:1fr;
-    gap:8px;
-    width:100%;
+    gap:10px;
   }
 
-  .day-stat{
-    display:grid;
-    grid-template-columns:minmax(74px, 30%) minmax(0, 1fr);
-    align-items:center;
-    gap:12px;
-    width:100%;
-    min-height:58px;
-    padding:10px 12px;
-    border-radius:14px;
-    overflow:hidden;
+  .day-block-separate{
+    background:var(--white);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:14px;
+    border-left:4px solid var(--brand);
   }
 
-  .day-stat strong{
-    min-width:0;
-    font-size:21px;
-    line-height:1.05;
-    overflow-wrap:anywhere;
-    word-break:break-word;
-  }
-
-  .day-stat small{
-    min-width:0;
-    display:block;
+  .day-block-separate-title{
     font-size:11px;
-    line-height:1.25;
-    overflow-wrap:anywhere;
-    word-break:break-word;
+    font-weight:700;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    color:var(--brand);
+    margin-bottom:8px;
+  }
+
+  .day-block-separate-count{
+    font-size:12px;
+    color:var(--muted);
   }
 }
