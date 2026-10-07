@@ -507,26 +507,3 @@ html,body{overflow-x:hidden}
 .day-block-tasks{display:flex;flex-direction:column;gap:6px;padding:0 10px 10px}
 .day-block-tasks .day-task{margin-top:0}
 @media(max-width:760px){.day-block-title{padding:11px 12px}.day-block-title b{font-size:10px}.day-block-count{font-size:10px}.day-block-tasks{padding:0 9px 9px;gap:6px}}
-
-/* ExamFlow v13 — mobile metrics and progress containment */
-.progress-track,.mini-progress{width:100%;max-width:100%;overflow:hidden;contain:paint}
-.progress-track span,.mini-progress span{display:block;max-width:100%;min-width:0}
-.metrics-row,.metric-card,.metric-top,.metric-top>span:first-child,.metric-value,.metric-foot,.day-panel,.day-main,.day-stats,.day-stat,.day-stat strong,.day-stat small{min-width:0;max-width:100%}
-.metric-card{overflow:hidden}
-.metric-top>span:first-child,.metric-value,.metric-foot,.day-stat strong,.day-stat small{overflow-wrap:anywhere;word-break:break-word}
-@media(max-width:760px){
-  .metrics-row{width:100%;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
-  .metric-card{width:100%;min-width:0;min-height:104px;padding:12px 11px}
-  .metric-top{width:100%;align-items:flex-start;gap:6px}
-  .metric-top>span:first-child{font-size:10px!important;line-height:1.25}
-  .metric-icon{flex:0 0 28px;width:28px;height:28px}
-  .metric-value{font-size:22px!important;line-height:1.05;margin-top:8px}
-  .metric-foot{font-size:10px!important;line-height:1.25;margin-top:5px}
-  .day-panel{width:100%;overflow:hidden}
-  .day-stats{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}
-  .day-stat{width:100%;overflow:hidden}
-  .day-stat strong{font-size:19px;line-height:1.05}
-  .day-stat small{display:block;font-size:10px;line-height:1.2}
-  .day-verdict{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
-  .day-ring{flex:none;max-width:100%}
-}
