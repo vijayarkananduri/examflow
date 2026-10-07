@@ -555,3 +555,18 @@ html,body{overflow-x:hidden}
   }
 }
 
+
+/* ExamFlow v15 — balanced Your Day ring and layered home cards */
+.day-panel{position:relative;overflow:hidden;background:linear-gradient(135deg,#fffefa 0%,#f4f7df 58%,#eef2d3 100%);border-color:#e0e7c8}
+.day-panel::before{content:"";position:absolute;inset:0 auto 0 0;width:5px;background:linear-gradient(180deg,var(--brand),var(--lime));border-radius:24px 0 0 24px}
+.lower-grid>.panel:first-child{background:linear-gradient(135deg,#fffefa 0%,#f4f7e5 100%);border-color:#e0e7c8;position:relative;overflow:hidden}
+.lower-grid>.panel:first-child::after{content:"";position:absolute;width:150px;height:150px;right:-60px;top:-70px;border-radius:50%;background:radial-gradient(circle,rgba(184,217,52,.28),transparent 70%);pointer-events:none}
+.lower-grid>.panel:first-child .panel-head,.lower-grid>.panel:first-child .recommend-card,.lower-grid>.panel:first-child .plan-lines{position:relative;z-index:1}
+.recommend-card{box-shadow:0 8px 18px rgba(74,96,35,.08)}
+@media(max-width:760px){
+  .day-panel{align-items:stretch}
+  .day-ring{align-self:center}
+  .day-main,.day-stats,.day-blocks{position:relative;z-index:1}
+  .day-panel::before{width:4px}
+  .lower-grid>.panel:first-child{padding:17px 15px}
+}
