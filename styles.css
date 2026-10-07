@@ -507,3 +507,11 @@ html,body{overflow-x:hidden}
 .day-block-tasks{display:flex;flex-direction:column;gap:6px;padding:0 10px 10px}
 .day-block-tasks .day-task{margin-top:0}
 @media(max-width:760px){.day-block-title{padding:11px 12px}.day-block-title b{font-size:10px}.day-block-count{font-size:10px}.day-block-tasks{padding:0 9px 9px;gap:6px}}
+
+/* ExamFlow v14 — separate Your Day summary cards on mobile */
+@media(max-width:760px){
+  .day-stats{grid-template-columns:1fr;gap:8px}
+  .day-stat{display:grid;grid-template-columns:minmax(74px,30%) minmax(0,1fr);align-items:center;gap:12px;min-height:58px;padding:10px 12px;text-align:left;border-radius:14px}
+  .day-stat strong{font-size:21px;line-height:1.05;overflow-wrap:anywhere}
+  .day-stat small{font-size:11px;line-height:1.25;overflow-wrap:anywhere}
+}
