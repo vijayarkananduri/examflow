@@ -408,3 +408,32 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .unit-acc>summary{padding:14px 16px;min-height:60px}
 @media(max-width:1100px){.page-content{padding-left:24px;padding-right:24px}.day-panel{grid-template-columns:150px minmax(0,1fr);column-gap:18px}.day-ring{width:132px;height:132px}.day-ring>div{width:102px;height:102px}}
 @media(max-width:760px){.page-content{padding:20px 14px calc(96px + env(safe-area-inset-bottom,0px))}.page-heading{margin-bottom:16px}.hero-card{min-height:280px}.metrics-row{gap:9px}.metric-card{min-height:102px;padding:14px}.day-panel{padding:19px;gap:16px}.day-ring{width:142px;height:142px}.day-ring>div{width:108px;height:108px}.day-main h2{font-size:24px}.day-stats{gap:8px}.day-stat{padding:10px 9px}.day-stat strong{font-size:19px}}
+
+/* ExamFlow v9 — intentional mobile layout; no content or feature changes */
+@media(max-width:760px){
+  .day-panel{
+    grid-template-columns:1fr;
+    grid-template-rows:auto auto auto;
+    align-items:stretch;
+    gap:18px;
+    padding:20px 16px;
+  }
+  .day-ring{grid-column:1;grid-row:1;justify-self:center;align-self:center;width:136px;height:136px}
+  .day-ring>div{width:104px;height:104px}
+  .day-main{grid-column:1;grid-row:2;width:100%;}
+  .day-main h2{font-size:25px;line-height:1.18;text-align:center;margin:0 auto 9px;max-width:260px}
+  .day-main .eyebrow{text-align:center;display:block}
+  .day-verdict{display:block;width:100%;text-align:center;font-size:12px;line-height:1.35}
+  .day-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
+  .day-stat{min-height:78px;padding:11px 10px;border-radius:14px}
+  .day-stat strong{font-size:22px;line-height:1.05}
+  .day-stat small{font-size:11px;line-height:1.25}
+  .day-blocks{grid-column:1;grid-row:3;grid-template-columns:1fr;gap:9px;width:100%}
+  .day-block{padding:11px 10px;border-radius:15px}
+  .day-block b{font-size:10px;margin-bottom:7px}
+  .day-task{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:11px 12px;min-height:0;text-align:left}
+  .day-task span{font-size:13px;line-height:1.35}
+  .day-task small{margin:0;white-space:nowrap;font-size:11px}
+  .metrics-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .metric-card{min-height:108px}
+}
